@@ -23,7 +23,7 @@ panel), passed as `BGPHORIZON_API_KEY`.
 
 ```bash
 export BGPHORIZON_API_KEY=bgps_xxx
-uvx bgphorizon-mcp --selftest      # ✓ API reachable ✓ key valid ✓ 15 tools ✓ 5 resources ✓ 7 prompts
+uvx bgphorizon-mcp --selftest      # ✓ API reachable ✓ key valid ✓ 15 tools ✓ 8 resources ✓ 7 prompts
 ```
 
 `uvx bgphorizon-mcp` fetches and runs on demand — nothing to install first. Or
@@ -102,8 +102,11 @@ OpenAI Agents SDK, LangChain, n8n, VS Code) and reverse-proxy config.
 
 **Operator tools (3):** `health_check`, `validate_announcement`, `visibility`.
 
-**Resources (5):** `bgphorizon://reference/{detection-types, collectors, glossary,
-data-horizon, report-template}` — reference the model can pull without a tool call.
+**Resources (8):** `bgphorizon://reference/{detection-types, collectors, glossary,
+data-horizon, report-template, writing-guide, qa-checklist, methodology}` — reference
+the model can pull without a tool call. `report-template` ships with the house CSS
+already inlined, and the report standards are all here, so a hosted (no-clone) client
+still writes house-style reports.
 
 **Prompts (7):** `investigate_entity`, `write_report`, `triage_incident`,
 `locate_infrastructure`, `audit_my_network`, `preflight_change`,

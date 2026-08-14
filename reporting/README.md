@@ -7,6 +7,32 @@ OpenAI (Codex CLI / Agents SDK / ChatGPT), Gemini CLI, Cursor, and others.
 It's the same three steps everywhere. Only step 1 (how you connect the server) and
 *where* you paste the system prompt differ per client — both are spelled out below.
 
+## Recommended workflow (what works best)
+
+For the highest-quality output, **clone this repo and point the model at the on-disk
+kit** — it includes the build/QA tooling the MCP itself can't run for you:
+
+1. **Clone** — `git clone https://github.com/bgphorizon/bgphorizon-mcp`
+2. **Register the MCP** with your client (hosted or self-hosted; see below).
+3. **Ask for a report, and tell the model to use the `reporting/` directory** for the
+   QA standards, template, and CSS — then run
+   [`build-report.sh`](build-report.sh) to inline the CSS, validate the HTML, and
+   render a PDF/PNG.
+
+Why this matters: the MCP's `report-template` resource is self-contained, but the real
+value of the on-disk kit is [`WRITING-GUIDE.md`](WRITING-GUIDE.md) (voice + the "avoid"
+table), [`QA-CHECKLIST.md`](QA-CHECKLIST.md) (the pre-publication pass), and
+`build-report.sh` (which catches undefined CSS vars, unreplaced placeholders, and
+invalid nesting, and produces the PDF). A model that only reads the MCP resource can
+produce a good report, but a model told to *follow the on-disk `reporting/` kit and run
+`build-report.sh`* produces a **house-standard** one. When you invoke `write_report`,
+explicitly say: *"use the `reporting/` directory for the writing guide, QA checklist,
+template and CSS, and run build-report.sh at the end."*
+
+**No clone?** The hosted/no-install path still works — the MCP serves the full standards
+as resources (`writing-guide`, `qa-checklist`, `methodology`, and a `report-template`
+with the house CSS already inlined). You just don't get the local build/render script.
+
 ## The workflow (three steps)
 
 1. **Connect the MCP server** to your client (once). Full per-client config is in

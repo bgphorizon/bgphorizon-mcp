@@ -61,8 +61,45 @@ def register_resources(mcp: FastMCP, client: BGPHorizonClient) -> None:
     @mcp.resource(
         "bgphorizon://reference/report-template",
         name="Report template",
-        description="The house HTML report skeleton used by the write_report prompt.",
+        description="The house HTML report skeleton, with the real house CSS already "
+        "inlined — use it as-is, do not write substitute styles.",
         mime_type="text/html",
     )
     def report_template() -> str:
-        return _read("report_template.html")
+        # Inline the real stylesheet so a model using only this resource gets the
+        # house look, instead of inventing CSS from the empty <style> block.
+        html = _read("report_template.html")
+        css = _read("report.css")
+        return html.replace(
+            "/* ---- inline the contents of template-assets/report.css here ---- */", css
+        )
+
+    @mcp.resource(
+        "bgphorizon://reference/writing-guide",
+        name="Report writing guide",
+        description="House voice rules and the explicit 'avoid' table (em-dash density, "
+        "'not X but Y', observation-vs-inference, correction blocks). Read before writing.",
+        mime_type="text/markdown",
+    )
+    def writing_guide() -> str:
+        return _read("writing_guide.md")
+
+    @mcp.resource(
+        "bgphorizon://reference/qa-checklist",
+        name="Report QA checklist",
+        description="The pre-publication pass every report must clear (claims trace to "
+        "evidence, colour semantics, no unverified pattern-matching, live-badge accuracy).",
+        mime_type="text/markdown",
+    )
+    def qa_checklist() -> str:
+        return _read("qa_checklist.md")
+
+    @mcp.resource(
+        "bgphorizon://reference/methodology",
+        name="Report methodology",
+        description="The investigation procedure — evidence order and the checks that "
+        "keep conclusions defensible.",
+        mime_type="text/markdown",
+    )
+    def methodology() -> str:
+        return _read("methodology.md")

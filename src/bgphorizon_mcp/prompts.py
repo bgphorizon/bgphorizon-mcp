@@ -57,20 +57,34 @@ Output a concise findings list: each finding with its evidence and a confidence 
     def write_report(entity: str, window: str = "60d") -> str:
         return f"""Write a complete BGP routing report on {entity} covering the last {window}.
 
+If a `reporting/` directory is available on disk (you cloned the repo — the
+recommended setup), use it as the source of truth: read `reporting/WRITING-GUIDE.md`
+and `reporting/QA-CHECKLIST.md`, build from `reporting/TEMPLATE.html` +
+`reporting/template-assets/report.css`, and run `reporting/build-report.sh` to inline
+the CSS, validate the HTML, and render the PDF/PNG. Otherwise, use the equivalent MCP
+resources below — they carry the same content.
+
 Procedure:
-1. Read the resources `bgphorizon://reference/data-horizon`, \
-`bgphorizon://reference/detection-types`, and `bgphorizon://reference/glossary` first.
+1. Read the standards first: `bgphorizon://reference/writing-guide`,
+   `bgphorizon://reference/qa-checklist`, `bgphorizon://reference/methodology`,
+   `bgphorizon://reference/data-horizon`, `bgphorizon://reference/detection-types`,
+   `bgphorizon://reference/glossary`.
 2. Do the full `investigate_entity` workup to gather evidence.
-3. Fetch `bgphorizon://reference/report-template` and produce self-contained HTML from \
-it — replace every {{{{PLACEHOLDER}}}}, delete unused component blocks, keep it valid \
-standalone HTML (inline styles; no external assets).
+3. Fetch `bgphorizon://reference/report-template` — the house CSS is **already inlined**,
+   so use those styles as-is; do NOT write substitute CSS. Replace every
+   {{{{PLACEHOLDER}}}}, delete unused component blocks, keep it valid self-contained HTML.
+4. Before finishing, work the QA checklist end to end.
 
 Rules for the write-up:
 {_GUARDRAILS}
-- Lead with the defensible conclusion, then the evidence chain.
-- Every claim traces to a specific tool result. If evidence is thin, say so rather \
-than reaching.
-- Use the glossary's plain-language level; expand jargon on first use."""
+- Follow the writing guide's voice rules — especially the "avoid" table (watch em-dash
+  density and "not X but Y"; both read as generated prose).
+- Mark observation vs inference explicitly; if your analysis changed mid-investigation,
+  record the reversal in a correction block rather than hiding it.
+- Lead with the defensible conclusion, then the evidence chain. Every claim traces to a
+  specific tool result — never pattern-match off numerals without a lookup, and use
+  complete per-type queries (not a capped page) for any count you state.
+- Respect the template's colour semantics. Use the glossary's plain-language level."""
 
     @mcp.prompt(
         name="triage_incident",

@@ -1,0 +1,837 @@
+<title>AS402215 Address Churn</title>
+
+<style>
+/* ---- inline the contents of template-assets/report.css here ---- */
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="brand"><span class="wm">BGP<em>Horizon</em></span></div>
+    <div class="kicker">Routing Report</div>
+  </header>
+
+  <div class="col">
+    <p class="eyebrow">Report &middot; 14 August 2026</p>
+    <h1>AS402215: ninety-four address blocks in eleven days, with the paperwork trailing</h1>
+    <p class="standfirst">
+      Between 3 and 13 August 2026, AS402215 (DEVOLOGY, registered to Devology Tech LLC)
+      announced 94 IPv4 /24 blocks. Only 25 of them stayed in the routing table for the
+      whole window. Ninety-three high-severity detections name AS402215 as the party making
+      a never-before-seen origin claim, displacing 77 other networks, which reads as a
+      serial hijacker until the registration data is checked: in seven of the eight blocks
+      we verified, the registered holder had already changed to one maintainer,
+      <span class="m">netutils-mnt</span>, hours or days before the announcement went out.
+      The better description is a transfer pipeline running ahead of its own cryptographic
+      records. That is not theft, but it produced sixteen dual-origin conflicts and, on
+      12 August, took a group of these blocks off the internet for 93 minutes.
+    </p>
+  </div>
+
+  <div class="dateline">
+    <span>Generated 2026-08-14 01:56 UTC</span>
+    <span class="live"><span class="dot" aria-hidden="true"></span>6 RPKI-invalid announcements still active</span>
+    <span>Window 2026-08-03 &rarr; 2026-08-13</span>
+    <span>AS402215 &middot; 94 IPv4 prefixes</span>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><span class="v">94</span><span class="k">Prefixes announced</span></div>
+    <div class="stat"><span class="v">25</span><span class="k">Persistent (27% of 94)</span></div>
+    <div class="stat accent"><span class="v">93</span><span class="k">First-time origin claims</span></div>
+    <div class="stat accent"><span class="v">93 min</span><span class="k">Longest outage, 12 Aug</span></div>
+  </div>
+
+  <details>
+    <summary>Terms used in this report</summary>
+    <dl class="gloss">
+      <dt>BGP</dt>
+      <dd>The internet&rsquo;s routing system. Networks use it to advertise which blocks
+        of addresses they can deliver traffic for.</dd>
+      <dt>AS / AS number</dt>
+      <dd>Autonomous System. A numbered network under one administration, written
+        <span class="m">AS402215</span>.</dd>
+      <dt>Origin AS</dt>
+      <dd>The network that claims to hold the addresses, and the last entry on the route&rsquo;s
+        path. A prefix normally has exactly one.</dd>
+      <dt>Prefix</dt>
+      <dd>A block of addresses, written <span class="m">45.62.168.0/24</span>. A
+        <span class="m">/24</span> is 256 addresses; a <span class="m">/16</span> is 65,536.</dd>
+      <dt>Upstream / transit</dt>
+      <dd>A provider a network buys connectivity from. It is the AS immediately before the
+        origin on the path.</dd>
+      <dt>MOAS</dt>
+      <dd>Multiple Origin AS. Two networks announcing the same prefix at the same time.
+        Usually harmless, from anycast or multihoming. A new one has the shape of a hijack.</dd>
+      <dt>Persistence</dt>
+      <dd>Whether a prefix is announced steadily: <em>persistent</em>, <em>intermittent</em>
+        or <em>transient</em>. A block present on 2 days out of 11 is transient, and calling
+        that a migration would be wrong.</dd>
+      <dt>RPKI / ROA</dt>
+      <dd>Resource PKI. A ROA is a signed record stating that a given AS may originate a
+        given prefix, so routers can reject announcements that do not match. An announcement
+        with no matching ROA is <em>RPKI-invalid</em>.</dd>
+      <dt>IRR</dt>
+      <dd>Internet Routing Registry. A published database of intended routes that providers
+        use to build filters. Not cryptographically verified; stale entries persist.</dd>
+      <dt>Collector / peer / vantage point</dt>
+      <dd>RouteViews and RIPE RIS run <em>collectors</em> that receive routes from <em>peer</em>
+        routers. A change seen from only one peer is probably an artifact of measurement
+        rather than a real routing event.</dd>
+      <dt>Reachability / outage window</dt>
+      <dd>How many observing peers had no route at all, and for how long. This is impact.
+        A raw count of routing messages is not.</dd>
+    </dl>
+  </details>
+
+  <!-- ================= 01 ================= -->
+  <div class="h2-rule">
+    <span class="num">01</span>
+    <h2>What the evidence supports</h2>
+  </div>
+
+  <div class="col">
+    <p>
+      The detection platform recorded 497 anomalous incidents naming AS402215 in this
+      window. Of the 200 returned in the unfiltered page, 169 place AS402215 in the
+      offending role, meaning the <span class="m">direction</span> field reads
+      <span class="m">queried_entity_is_invalid_party</span>. Querying by type to get
+      complete counts gives 153 <span class="m">origin_mismatch_new</span> incidents, of
+      which 93 name AS402215 as the invalid party. All 93 are rated high severity. They
+      span 52 distinct prefixes and displace 77 distinct baseline networks. Every one
+      carries <span class="m">kind: "new"</span>, so none is a dormant pairing returning
+      after a lull.
+    </p>
+    <p>
+      Read on its own, that is a serial hijacker profile. It does not survive contact with
+      the registration data. We ran <span class="m">validate_announcement</span> against
+      eight of the contested blocks. Seven returned the same registered holder,
+      <span class="m">netutils-mnt</span>, flagged
+      <span class="m">recently_transferred: true</span>, with a holder-change timestamp
+      that precedes the announcement. <span class="m">85.92.140.0/24</span> changed hands
+      at 03:24 UTC on 10 August and was announced at 07:19 the same morning.
+      <span class="m">31.77.215.0/24</span> changed hands at 05:10 on 11 August and was
+      announced at 06:02 the following day. All eight now validate against a ROA naming
+      AS402215.
+    </p>
+  </div>
+
+  <div class="note">
+    <span class="label">Assessment</span>
+    <p>
+      <b>Observation:</b> AS402215 announces blocks whose registered holder changed to
+      <span class="m">netutils-mnt</span> shortly beforehand, and those announcements
+      generate first-time origin claims because the pairing has never existed.
+    </p>
+    <p>
+      <b>Inference:</b> the most probable reading is an address transfer pipeline moving
+      faster than RPKI and IRR records can follow. A pairing that has never existed is
+      what both a hijack and a same-week transfer look like to a 30-day baseline, and the
+      registration timestamps distinguish them. This is an operational problem with
+      measurable consequences, described in sections 04 and 06, rather than a seizure of
+      other people&rsquo;s address space.
+    </p>
+  </div>
+
+  <div class="note correction">
+    <span class="label">Correction made during analysis</span>
+    <p>
+      Our first pass through the detection data concluded that AS402215 was hijacking at
+      scale, on the strength of the 169-to-31 split between offending and victim roles and
+      the scattered, unrelated character of the address space. That conclusion was wrong,
+      and checking the holder records overturned it. Detection direction identifies who
+      made the invalid announcement. It does not establish who holds the addresses, and we
+      had treated it as if it did.
+    </p>
+  </div>
+
+  <div class="col">
+    <p>
+      Two findings cut the other way, and neither is resolved by the transfer explanation.
+      The previous origins frequently keep announcing after the paperwork moves, producing
+      genuine simultaneous conflicts. And at least one block was announced into space whose
+      covering ROAs belong to parties bearing no resemblance to the prior holder. Sections
+      05 and 04 set both out.
+    </p>
+  </div>
+
+  <!-- ================= 02 ================= -->
+  <div class="h2-rule">
+    <span class="num">02</span>
+    <h2>Persistence: three quarters of this inventory does not stay put</h2>
+  </div>
+
+  <div class="col">
+    <p>
+      Before anything can be called a migration or a handover, the prefixes have to be
+      classified. The server does this itself, counting days present against days in the
+      window, and its classification is the one used throughout this report. Of the 94
+      IPv4 /24s AS402215 announced, 25 are persistent, 44 intermittent and 25 transient.
+      There is no IPv6. Every prefix is a /24, and the whole inventory comes to 24,064
+      addresses.
+    </p>
+    <p>
+      That distribution is the most important fact here. Twenty-five blocks appeared on one
+      or two days out of eleven and then vanished. When a high-severity detection fires on
+      one of those, the honest reading is that a block flickered into the table for a day.
+    </p>
+  </div>
+
+  <figure>
+    <div class="panel">
+      <div class="panel-hd"><h4>Persistence of the announced inventory</h4><span class="sub">94 prefixes &middot; 11 days</span></div>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr><th>Classification</th><th>Days present</th><th class="num">Prefixes</th>
+                <th class="num">Share</th><th>Example</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Persistent</td><td>10&ndash;11 of 11</td><td class="num">25</td><td class="num">27%</td><td class="mono">45.62.168.0/24 (11)</td></tr>
+            <tr><td>Intermittent</td><td>3&ndash;8 of 11</td><td class="num">44</td><td class="num">47%</td><td class="mono">77.107.83.0/24 (8)</td></tr>
+            <tr><td>Transient</td><td>1&ndash;2 of 11</td><td class="num">25</td><td class="num">27%</td><td class="mono">79.172.192.0/24 (1)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <figcaption>
+      Source: <span class="m">inventory</span> with <span class="m">classify=true</span>,
+      daily rollups. Shares are rounded and sum to 101%. The response raised a
+      <span class="m">window_start_at_data_floor</span> warning: one or more prefixes were
+      first observed on the window start date, so their first-seen date is censored by the
+      window edge and the block may have existed earlier. Nothing in this report treats
+      3 August as the start of anything.
+    </figcaption>
+  </figure>
+
+  <div class="col">
+    <p>
+      The persistent quarter behaves differently from the rest.
+      <span class="m">45.62.168.0/24</span> is representative:
+      <span class="m">origin_history</span> over the past month shows AS147218 originating
+      it until 18 July, AS402215 taking over that day, and AS402215 holding it continuously
+      since, with AS147293 reappearing alongside on seven separate days. The registration
+      agrees. The holder is a &ldquo;Private Customer&rdquo; record last changed on 9 January
+      2026, marked <span class="m">recently_transferred: false</span>, and
+      <span class="m">validate_announcement</span> returns a clean
+      <span class="m">clear</span> verdict. A settled holding with a noisy neighbour.
+    </p>
+    <p>
+      Now compare <span class="m">87.83.115.0/24</span>. AS151177 originated it on 11
+      August; AS402215 originated it on the 12th and 13th. The server labels that
+      transition a handover with zero days of overlap. But the prefix is classified
+      transient, present on 2 days of 11, with exactly one day of prior history to compare
+      against. Two days is not a migration, and the most we can say is that a block
+      appeared.
+    </p>
+  </div>
+
+  <figure>
+    <div class="panel">
+      <div class="panel-hd"><h4>Who originated what, day by day</h4><span class="sub">3&ndash;13 Aug 2026</span></div>
+      <div class="hand">
+        <div class="hv"><span class="hv-p">45.62.168.0/24</span><span class="hv-s">
+          <i class="hv-b" title="2026-08-03 AS147293 and AS402215"></i>
+          <i class="hv-m" title="2026-08-04 AS402215"></i>
+          <i class="hv-m" title="2026-08-05 AS402215"></i>
+          <i class="hv-m" title="2026-08-06 AS402215"></i>
+          <i class="hv-m" title="2026-08-07 AS402215"></i>
+          <i class="hv-m" title="2026-08-08 AS402215"></i>
+          <i class="hv-m" title="2026-08-09 AS402215"></i>
+          <i class="hv-m" title="2026-08-10 AS402215"></i>
+          <i class="hv-b" title="2026-08-11 AS147293 and AS402215"></i>
+          <i class="hv-m" title="2026-08-12 AS402215"></i>
+          <i class="hv-b" title="2026-08-13 AS147293 and AS402215"></i>
+        </span></div>
+        <div class="hv"><span class="hv-p">79.172.192.0/24</span><span class="hv-s">
+          <i class="hv-n" title="2026-08-03 not announced"></i>
+          <i class="hv-n" title="2026-08-04 not announced"></i>
+          <i class="hv-c" title="2026-08-05 AS63199"></i>
+          <i class="hv-c" title="2026-08-06 AS63199"></i>
+          <i class="hv-c" title="2026-08-07 AS63199 and AS152698"></i>
+          <i class="hv-c" title="2026-08-08 AS152698"></i>
+          <i class="hv-c" title="2026-08-09 AS152698"></i>
+          <i class="hv-c" title="2026-08-10 AS152698 and AS153168"></i>
+          <i class="hv-c" title="2026-08-11 AS153168"></i>
+          <i class="hv-n" title="2026-08-12 not announced"></i>
+          <i class="hv-m" title="2026-08-13 AS402215"></i>
+        </span></div>
+        <div class="hv"><span class="hv-p">87.83.115.0/24</span><span class="hv-s">
+          <i class="hv-n" title="2026-08-03 not announced"></i>
+          <i class="hv-n" title="2026-08-04 not announced"></i>
+          <i class="hv-n" title="2026-08-05 not announced"></i>
+          <i class="hv-n" title="2026-08-06 not announced"></i>
+          <i class="hv-n" title="2026-08-07 not announced"></i>
+          <i class="hv-n" title="2026-08-08 not announced"></i>
+          <i class="hv-n" title="2026-08-09 not announced"></i>
+          <i class="hv-n" title="2026-08-10 not announced"></i>
+          <i class="hv-c" title="2026-08-11 AS151177"></i>
+          <i class="hv-m" title="2026-08-12 AS402215"></i>
+          <i class="hv-m" title="2026-08-13 AS402215"></i>
+        </span></div>
+        <div class="axis"><span></span><span class="axis-t">
+          <i class="tk on">03</i><i class="tk on">04</i><i class="tk on">05</i><i class="tk on">06</i>
+          <i class="tk on">07</i><i class="tk on">08</i><i class="tk on">09</i><i class="tk on">10</i>
+          <i class="tk on">11</i><i class="tk on">12</i><i class="tk on">13</i>
+        </span></div>
+        <div class="legend">
+          <span><i class="swatch" style="background:var(--teal)"></i>Previous holder</span>
+          <span><i class="swatch" style="background:var(--orange)"></i>AS402215</span>
+          <span><i class="swatch" style="background:var(--red)"></i>Both at once</span>
+          <span><i class="swatch" style="background:var(--panel-2)"></i>Not announced</span>
+        </div>
+      </div>
+    </div>
+    <figcaption>
+      Source: <span class="m">origin_history</span>, daily rollups, 11 cells per prefix.
+      Absence is drawn explicitly: grey cells are days the block sat in nobody&rsquo;s
+      routing table. <span class="m">79.172.192.0/24</span> shows the pattern most clearly.
+      It passed through AS2914, AS63199, AS152698 and AS153168 before reaching AS402215 for
+      a single day. The server labels that final step a handover; with one day of presence,
+      transient is the only defensible word.
+    </figcaption>
+  </figure>
+
+  <!-- ================= 03 ================= -->
+  <div class="h2-rule">
+    <span class="num">03</span>
+    <h2>Attribution: broadly observed, not an artifact</h2>
+  </div>
+
+  <div class="col">
+    <p>
+      A spike seen through one collector peer is a property of the observatory rather than
+      of the internet, so the volume and the detections both need checking before they can
+      be treated as real.
+    </p>
+    <p>
+      They hold up. Across the eleven days AS402215 generated 323,984 announcements observed
+      at 24 distinct collectors. Concentration metadata reports a top-collector share of
+      19.5% for <span class="m">route-views.napafrica</span> and 10.96 effective vantage
+      points. No <span class="m">single_vantage_point</span> or
+      <span class="m">concentration</span> warning was raised on any timeline, path or
+      visibility call made during this investigation. Among the 93 high-severity origin
+      claims, the median incident was seen by 205 peers, and 52 of the 93 were seen by at
+      least 100 peers across at least 10 collectors.
+    </p>
+    <p>
+      The two volume peaks are similarly broad-based: 65,799 announcements on 10 August and
+      56,616 on the 12th, against a median of 19,931.
+      A <span class="m">compare_windows</span> run across the collector dimension shows no
+      collector appearing or disappearing between the quiet and busy halves of the window.
+      Every collector simply counted more. The strip below draws the largest single
+      collector as a separate segment so the split is visible: napafrica stays roughly flat
+      while the total triples.
+    </p>
+  </div>
+
+  <figure>
+    <div class="panel">
+      <div class="panel-hd"><h4>Daily announcements from AS402215</h4><span class="sub">24 collectors &middot; max 65,799</span></div>
+      <div class="daily">
+        <div class="dy"><span class="dy-d">08-03</span><span class="dy-t"><span class="dy-a" style="width:66.3%"></span><span class="dy-h" style="width:8.5%"></span></span><span class="dy-v">49,245</span></div>
+        <div class="dy"><span class="dy-d">08-04</span><span class="dy-t"><span class="dy-a" style="width:19.0%"></span><span class="dy-h" style="width:10.4%"></span></span><span class="dy-v">19,377</span></div>
+        <div class="dy"><span class="dy-d">08-05</span><span class="dy-t"><span class="dy-a" style="width:24.9%"></span><span class="dy-h" style="width:10.2%"></span></span><span class="dy-v">23,110</span></div>
+        <div class="dy"><span class="dy-d">08-06</span><span class="dy-t"><span class="dy-a" style="width:15.7%"></span><span class="dy-h" style="width:8.9%"></span></span><span class="dy-v">16,183</span></div>
+        <div class="dy"><span class="dy-d">08-07</span><span class="dy-t"><span class="dy-a" style="width:18.3%"></span><span class="dy-h" style="width:7.0%"></span></span><span class="dy-v">16,651</span></div>
+        <div class="dy"><span class="dy-d">08-08</span><span class="dy-t"><span class="dy-a" style="width:14.5%"></span><span class="dy-h" style="width:7.2%"></span></span><span class="dy-v">14,292</span></div>
+        <div class="dy"><span class="dy-d">08-09</span><span class="dy-t"><span class="dy-a" style="width:22.5%"></span><span class="dy-h" style="width:7.8%"></span></span><span class="dy-v">19,931</span></div>
+        <div class="dy"><span class="dy-d">08-10</span><span class="dy-t"><span class="dy-a" style="width:88.9%"></span><span class="dy-h" style="width:11.1%"></span></span><span class="dy-v">65,799</span></div>
+        <div class="dy"><span class="dy-d">08-11</span><span class="dy-t"><span class="dy-a" style="width:26.7%"></span><span class="dy-h" style="width:8.3%"></span></span><span class="dy-v">23,037</span></div>
+        <div class="dy"><span class="dy-d">08-12</span><span class="dy-t"><span class="dy-a" style="width:75.8%"></span><span class="dy-h" style="width:10.3%"></span></span><span class="dy-v">56,616</span></div>
+        <div class="dy"><span class="dy-d">08-13</span><span class="dy-t"><span class="dy-a" style="width:23.8%"></span><span class="dy-h" style="width:6.2%"></span></span><span class="dy-v">19,743</span></div>
+      </div>
+      <div class="legend">
+        <span><i class="swatch" style="background:var(--teal)"></i>All other collectors</span>
+        <span><i class="swatch" style="background:var(--ink-3);opacity:.55"></i>route-views.napafrica, the largest single collector</span>
+      </div>
+    </div>
+    <figcaption>
+      Source: <span class="m">timeline</span> grouped by collector, daily rollups. Bar
+      widths are each segment&rsquo;s share of the 65,799 peak. Announcement counts measure
+      routing churn, not traffic. Both peaks are present at every collector, which makes
+      them events in the routing system rather than one vantage point shouting.
+    </figcaption>
+  </figure>
+
+  <div class="col">
+    <p>
+      One further calibration. Over the same fortnight
+      <span class="m">platform_baseline</span> reports roughly 181,805 anomalous incidents
+      platform-wide, dominated by <span class="m">irr_invalid_asn</span> and
+      <span class="m">unregistered_route</span>. The internet carries a very large volume of
+      routine registry inconsistency, so 497 incidents from one ASN is a small fraction of
+      the total. What sets these apart is composition rather than count: 93 high-severity
+      first-time origin claims and 18 MOAS conflicts, from a six-month-old ASN, in eleven
+      days.
+    </p>
+  </div>
+
+  <div class="note warn">
+    <span class="label">Sampling limits on the counts above</span>
+    <p>
+      The unfiltered <span class="m">detections</span> call matched 497 incidents and
+      returned the first 200, and its <span class="m">counts_by_type</span> block describes
+      that page rather than the full set. Every figure quoted here for
+      <span class="m">origin_mismatch_new</span> (153), <span class="m">rpki_invalid_asn</span>
+      (17) and <span class="m">moas_conflict</span> (18) comes from a per-type re-query that
+      returned complete results. Counts for <span class="m">irr_invalid_asn</span>,
+      <span class="m">irr_change</span> and <span class="m">roa_change</span> were not
+      re-queried and are floors rather than totals. The
+      <span class="m">platform_baseline</span> response carries its own
+      <span class="m">sampled_baseline</span> warning: the breakdown is drawn from the 500
+      most recent incidents, so its proportions are usable but its absolute per-type counts
+      are not.
+    </p>
+  </div>
+
+  <!-- ================= 04 ================= -->
+  <div class="h2-rule">
+    <span class="num">04</span>
+    <h2>The mechanism: announcements arrive before the signed records</h2>
+  </div>
+
+  <div class="col">
+    <p>
+      Seventeen <span class="m">rpki_invalid_asn</span> incidents fired in the window. Ten
+      name AS402215 as the invalid party, and they fall into three tight bursts with the
+      same shape. Several blocks go out within seconds of each other. Every one fails RPKI
+      validation because the previous holder&rsquo;s ROA is still published. The condition
+      then clears within minutes to an hour, when a replacement ROA naming AS402215 appears.
+    </p>
+    <p>
+      This is precisely the hazard <span class="m">validate_announcement</span> exists to
+      flag. All eight blocks we tested returned verdict <span class="m">warn</span> with the
+      same message: space changed registered holder within 90 days, the previous
+      holder&rsquo;s ROAs may still be published, confirm before announcing. The
+      announcements went out regardless.
+    </p>
+  </div>
+
+  <figure>
+    <div class="panel">
+      <div class="panel-hd"><h4>RPKI-invalid episodes with AS402215 as the invalid party</h4><span class="sub">10 of 17 incidents</span></div>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr><th class="mono">Prefix</th><th>Invalid window, UTC</th><th>Covering ROA authorises</th>
+                <th class="num">Peers</th><th>Outcome</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="mono">213.247.45.0/24</td><td class="mono">08-10 07:19:25 &rarr; 07:26:56</td><td class="mono">AS146869</td><td class="num">181</td><td>resolved</td></tr>
+            <tr><td class="mono">213.214.100.0/24</td><td class="mono">08-10 07:19:30 &rarr; 07:26:56</td><td class="mono">AS146869</td><td class="num">181</td><td>resolved</td></tr>
+            <tr><td class="mono">213.189.22.0/24</td><td class="mono">08-10 07:19:35 &rarr; 07:26:56</td><td class="mono">AS146869</td><td class="num">181</td><td>resolved</td></tr>
+            <tr><td class="mono">85.92.140.0/24</td><td class="mono">08-10 07:19:41 &rarr; 07:26:56</td><td class="mono">AS146869</td><td class="num">181</td><td>resolved</td></tr>
+            <tr><td class="mono">5.182.112.0/24</td><td class="mono">08-10 07:19:46 &rarr; 07:26:56</td><td class="mono">AS146869</td><td class="num">180</td><td>resolved</td></tr>
+            <tr><td class="mono">88.209.227.0/24</td><td class="mono">08-10 07:20:03 &rarr; 07:26:56</td><td class="mono">AS153168</td><td class="num">181</td><td>resolved</td></tr>
+            <tr class="hi"><td class="mono">82.153.101.0/24</td><td class="mono">08-10 08:54:55 &rarr; 09:03:47</td><td class="wrapcell">AS834 for the /24, plus AS19905, AS8851 and AS206509 covering <span class="m">82.152.0.0/15</span></td><td class="num">207</td><td>resolved</td></tr>
+            <tr><td class="mono">31.77.215.0/24</td><td class="mono">08-12 06:02:03 &rarr; 06:41:54</td><td class="mono">AS151814</td><td class="num">140</td><td>resolved</td></tr>
+            <tr><td class="mono">2.27.235.0/24</td><td class="mono">08-12 06:02:03 &rarr; 06:41:54</td><td class="mono">AS151814</td><td class="num">140</td><td>resolved</td></tr>
+            <tr class="hi"><td class="mono">79.172.192.0/24</td><td class="mono">08-13 22:11:59 &rarr; 23:19:11</td><td class="wrapcell">AS153168 for the /24, AS834 for the covering /23</td><td class="num">189</td><td>new ROA published</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <figcaption>
+      Source: <span class="m">detections</span> filtered to
+      <span class="m">rpki_invalid_asn</span>, complete at 17 incidents, of which the 10 with
+      AS402215 as the invalid party are shown. Every row was queried; none is inferred.
+      Highlighted rows are the two cases where the covering ROAs do not belong to the
+      immediately preceding origin. <b>82.153.101.0/24</b> sits inside
+      <span class="m">82.152.0.0/15</span>, a block carrying three separate ROAs from
+      unrelated networks, which is harder to account for as transfer lag. For
+      <b>79.172.192.0/24</b> the record is unusually explicit: a
+      <span class="m">roa_change</span> event at 23:19 on 13 August shows a ROA for AS402215
+      being added where the registered origin had been AS153168, and the invalid condition
+      ended in the same minute.
+    </figcaption>
+  </figure>
+
+  <div class="col">
+    <p>
+      The registry side is directly visible. At least 52
+      <span class="m">irr_change</span> and 22 <span class="m">roa_change</span> events name
+      AS402215 in the window, adding route objects and signed records for blocks arriving
+      and removing them for blocks leaving. The removals tell as much as the additions.
+      <span class="m">92.113.46.0/24</span> and <span class="m">16.5.1.0/24</span> both show
+      a ROA naming AS402215 being withdrawn on 8 August as the block moved on to AS142240
+      and AS139642 respectively. Address space passes through this ASN in both directions.
+    </p>
+    <p>
+      A <span class="m">health_check</span> run today reports 100% RPKI coverage, 100% IRR
+      coverage and zero MOAS across 87 sampled prefixes. That is a snapshot taken after
+      every burst had already resolved, so it does not contradict the table above. It does
+      show that a hygiene check limited to present state will never surface this pattern.
+    </p>
+  </div>
+
+  <figure>
+    <div class="panel">
+      <div class="panel-hd"><h4>First-time origin claims by AS402215, per day</h4><span class="sub">93 incidents &middot; all high severity</span></div>
+      <div class="chart">
+        <div class="ep-row"><span class="ep-date">2026-08-03</span><span class="ep-track"><span class="ep-bar" style="width:7.3%;background:var(--orange)"></span></span><span class="ep-n">3</span></div>
+        <div class="ep-row"><span class="ep-date">2026-08-08</span><span class="ep-track"><span class="ep-bar" style="width:22.0%;background:var(--orange)"></span></span><span class="ep-n">9</span></div>
+        <div class="ep-row"><span class="ep-date">2026-08-09</span><span class="ep-track"><span class="ep-bar" style="width:39.0%;background:var(--orange)"></span></span><span class="ep-n">16</span></div>
+        <div class="ep-row"><span class="ep-date">2026-08-10</span><span class="ep-track"><span class="ep-bar" style="width:100%;background:var(--orange)">largest wave</span></span><span class="ep-n">41</span></div>
+        <div class="ep-row"><span class="ep-date">2026-08-11</span><span class="ep-track"><span class="ep-bar" style="width:22.0%;background:var(--orange)"></span></span><span class="ep-n">9</span></div>
+        <div class="ep-row"><span class="ep-date">2026-08-12</span><span class="ep-track"><span class="ep-bar" style="width:34.1%;background:var(--orange)"></span></span><span class="ep-n">14</span></div>
+        <div class="ep-row"><span class="ep-date">2026-08-13</span><span class="ep-track"><span class="ep-bar" style="width:2.4%;background:var(--orange)"></span></span><span class="ep-n">1</span></div>
+      </div>
+      <div class="legend">
+        <span><i class="swatch" style="background:var(--orange)"></i>AS402215 claiming a prefix for the first time</span>
+      </div>
+    </div>
+    <figcaption>
+      Source: <span class="m">detections</span> filtered to
+      <span class="m">origin_mismatch_new</span>, complete at 153 incidents, of which 93 name
+      AS402215 as the invalid party. Bar widths are the day&rsquo;s share of the 41-incident
+      peak; the seven rows sum to 93. Four days in the window produced none. Ninety-two of
+      the 93 were already in state <span class="m">resolved</span> at query time; the one
+      still active is on <span class="m">79.172.192.0/24</span>.
+    </figcaption>
+  </figure>
+
+  <!-- ================= 05 ================= -->
+  <div class="h2-rule">
+    <span class="num">05</span>
+    <h2>The handovers are contested in both directions</h2>
+  </div>
+
+  <div class="col">
+    <p>
+      Eighteen <span class="m">moas_conflict</span> incidents fired, 16 with AS402215 as the
+      invalid party. Each marks a period when AS402215 and the previous origin announced the
+      same /24 at once. Between 11:42 and 12:23 UTC on 10 August, eleven blocks were in
+      conflict simultaneously, each seen by 207 to 209 peers across all 24 collectors. That
+      was globally visible rather than a local wobble.
+    </p>
+    <p>
+      The reverse direction matters too, and reading the <span class="m">direction</span>
+      field rather than inferring roles by hand is what keeps it straight. Seven
+      <span class="m">rpki_invalid_asn</span> incidents place AS402215 in the baseline role,
+      meaning other networks announced space whose current ROA names AS402215. Four of
+      those, all attributed to AS146869, were still active at query time, having run since
+      10 or 11 August.
+    </p>
+  </div>
+
+  <figure>
+    <div class="panel">
+      <div class="panel-hd"><h4>Others announcing into AS402215&rsquo;s ROAs</h4><span class="sub">7 incidents, AS402215 as baseline</span></div>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr><th class="mono">Prefix</th><th class="mono">Announcing AS</th><th>First seen, UTC</th>
+                <th class="num">Peers</th><th class="num">Collectors</th><th>State</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="mono">2.26.173.0/24</td><td class="mono">AS401152</td><td class="mono">08-10 16:39</td><td class="num">201</td><td class="num">24</td><td>resolved</td></tr>
+            <tr class="hi"><td class="mono">82.110.51.0/24</td><td class="mono">AS146857</td><td class="mono">08-11 05:46</td><td class="num">40</td><td class="num">17</td><td>active</td></tr>
+            <tr class="hi"><td class="mono">45.87.175.0/24</td><td class="mono">AS147276</td><td class="mono">08-11 05:46</td><td class="num">43</td><td class="num">19</td><td>active</td></tr>
+            <tr><td class="mono">5.182.112.0/24</td><td class="mono">AS146869</td><td class="mono">08-10 08:10</td><td class="num">6</td><td class="num">8</td><td>active</td></tr>
+            <tr><td class="mono">103.205.87.0/24</td><td class="mono">AS146869</td><td class="mono">08-11 00:51</td><td class="num">5</td><td class="num">7</td><td>active</td></tr>
+            <tr><td class="mono">104.153.82.0/24</td><td class="mono">AS146869</td><td class="mono">08-11 00:51</td><td class="num">5</td><td class="num">7</td><td>active</td></tr>
+            <tr><td class="mono">16.216.19.0/24</td><td class="mono">AS146869</td><td class="mono">08-11 00:51</td><td class="num">5</td><td class="num">7</td><td>active</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <figcaption>
+      Source: <span class="m">detections</span> filtered to
+      <span class="m">rpki_invalid_asn</span>, reading the <span class="m">direction</span>
+      field. The four AS146869 rows rest on 5 or 6 peers each, spread over 7 or 8
+      collectors: enough to establish that the announcements are real, not enough to
+      characterise their extent. The two highlighted rows are firmer, at 40 and 43 peers
+      across 17 and 19 collectors, and show AS146857 and AS147276 announcing into
+      AS402215&rsquo;s ROAs continuously since 11 August.
+    </figcaption>
+  </figure>
+
+  <div class="col">
+    <p>
+      One recurring group of ASNs sits on the other side of these transitions throughout the
+      window: AS153168 appears 15 times as a displaced baseline, AS834 14 times, AS146869
+      12, AS152698 10, AS146857 8, AS25198 7 and AS402487 6. Blocks visibly cycle around
+      this group, and <span class="m">79.172.192.0/24</span> passed through four of them in
+      nine days.
+    </p>
+    <p>
+      The rotation is observable. What connects these networks is not. Routing and registry
+      data cannot establish a relationship between them, and this report asserts none.
+      Shared registration or billing records would settle it.
+    </p>
+  </div>
+
+  <!-- ================= 06 ================= -->
+  <div class="h2-rule">
+    <span class="num">06</span>
+    <h2>Impact: 93 minutes of nothing on 12 August</h2>
+  </div>
+
+  <div class="col">
+    <p>
+      Detection counts are not impact. Reachability is. Between 09:56:30 and 11:29:24 UTC on
+      12 August, <span class="m">87.83.115.0/24</span> was unreachable from all 324 peers
+      observing it, reaching 100% at 10:08:54. Over the same window
+      <span class="m">151.247.1.0/24</span> lost 310 of its 318 peers, or 97.5%. The two
+      curves track each other second by second going down and coming back.
+    </p>
+    <p>
+      The <span class="m">reachability</span> response flagged the reason itself: a shared
+      outage window appearing across prefixes points at a common upstream rather than a
+      per-prefix issue. The path data bears that out. Both blocks reach the routing table
+      almost entirely through AS17497 (LGHL-AS-AP, Liasail Global Hongkong Limited), which
+      carries 100% of <span class="m">151.247.1.0/24</span>&rsquo;s observed paths and 93%
+      of <span class="m">87.83.115.0/24</span>&rsquo;s. When AS17497 stopped carrying them,
+      they left the global table.
+    </p>
+    <p>
+      Prefixes homed elsewhere were unaffected at that hour. We checked four others across
+      the same day. <span class="m">2.26.184.0/24</span> and
+      <span class="m">81.168.64.0/24</span> recorded no outage window at all, and
+      <span class="m">185.209.74.0/24</span> lost a quarter of its 56 peers for 19 minutes
+      at 08:00, well before the event. Separately,
+      <span class="m">45.62.168.0/24</span> lost 247 of 254 peers for 15 minutes on 13
+      August from 11:44. That prefix transits AS63199, so it is a different upstream and a
+      different outage.
+    </p>
+  </div>
+
+  <figure>
+    <div class="panel">
+      <div class="panel-hd"><h4>Peers with no route to 87.83.115.0/24</h4><span class="sub">12 Aug 2026 &middot; 324 peers tracked</span></div>
+      <div class="curve">
+        <div class="cv"><span class="cv-t">09:55:07</span><span class="cv-tr"><span class="cv-b" style="width:0.3%"></span></span><span class="cv-v">1</span></div>
+        <div class="cv"><span class="cv-t">09:56:12</span><span class="cv-tr"><span class="cv-b" style="width:4.9%"></span></span><span class="cv-v">16</span></div>
+        <div class="cv"><span class="cv-t">09:56:34</span><span class="cv-tr"><span class="cv-b" style="width:18.2%"></span></span><span class="cv-v">59</span></div>
+        <div class="cv"><span class="cv-t">09:56:53</span><span class="cv-tr"><span class="cv-b" style="width:30.9%"></span></span><span class="cv-v">100</span></div>
+        <div class="cv"><span class="cv-t">09:57:15</span><span class="cv-tr"><span class="cv-b" style="width:50.0%"></span></span><span class="cv-v">162</span></div>
+        <div class="cv"><span class="cv-t">09:57:45</span><span class="cv-tr"><span class="cv-b" style="width:59.0%"></span></span><span class="cv-v">191</span></div>
+        <div class="cv"><span class="cv-t">09:59:07</span><span class="cv-tr"><span class="cv-b" style="width:68.5%"></span></span><span class="cv-v">222</span></div>
+        <div class="cv"><span class="cv-t">09:59:53</span><span class="cv-tr"><span class="cv-b" style="width:83.3%"></span></span><span class="cv-v">270</span></div>
+        <div class="cv"><span class="cv-t">10:00:45</span><span class="cv-tr"><span class="cv-b" style="width:91.7%"></span></span><span class="cv-v">297</span></div>
+        <div class="cv"><span class="cv-t">10:01:57</span><span class="cv-tr"><span class="cv-b" style="width:98.1%"></span></span><span class="cv-v">318</span></div>
+        <div class="cv"><span class="cv-t">10:08:54</span><span class="cv-tr"><span class="cv-b" style="width:100.0%"></span></span><span class="cv-v">324</span></div>
+        <div class="cv"><span class="cv-t">11:28:41</span><span class="cv-tr"><span class="cv-b" style="width:44.1%"></span></span><span class="cv-v">143</span></div>
+        <div class="cv"><span class="cv-t">11:28:53</span><span class="cv-tr"><span class="cv-b" style="width:20.7%"></span></span><span class="cv-v">67</span></div>
+        <div class="cv"><span class="cv-t">11:29:06</span><span class="cv-tr"><span class="cv-b" style="width:9.9%"></span></span><span class="cv-v">32</span></div>
+        <div class="cv"><span class="cv-t">11:29:23</span><span class="cv-tr"><span class="cv-b" style="width:5.2%"></span></span><span class="cv-v">17</span></div>
+        <div class="cv"><span class="cv-t">11:32:19</span><span class="cv-tr"><span class="cv-b" style="width:2.2%"></span></span><span class="cv-v">7</span></div>
+      </div>
+    </div>
+    <figcaption>
+      Source: <span class="m">reachability</span>, reconstructed from individual BGP messages
+      rather than daily rollups, with 16 of 649 samples plotted. Bar widths are peers
+      without a route as a share of the 324 tracked. The series is event-driven, so the gap
+      between 10:09 and 11:28 is not missing data: it is 79 minutes in which nothing changed
+      because every observing peer had already withdrawn the route. Peer counts describe
+      observation points, not users affected.
+    </figcaption>
+  </figure>
+
+  <figure>
+    <div class="panel">
+      <div class="panel-hd"><h4>How the two competing origins reach the table</h4><span class="sub">87.83.115.0/24</span></div>
+      <div class="paths">
+        <div class="pgroup">
+          <div class="ttl">87.83.115.0/24, 11&ndash;13 August</div>
+          <div class="when">AS17497 carries 93.2% of observed paths &middot; AS62610 carries 6.8%</div>
+          <div class="prow"><span class="cnt">&times;142</span><span>
+            <span class="pth">37721 1299 174 17497 402215</span>
+            <span class="tag">AS402215 via AS17497</span></span></div>
+          <div class="prow"><span class="cnt">&times;68</span><span>
+            <span class="pth">24482 2914 3257 17497 402215</span>
+            <span class="tag">AS402215 via AS17497</span></span></div>
+          <div class="prow"><span class="cnt">&times;56</span><span>
+            <span class="pth">37721 174 17497 402215</span>
+            <span class="tag">AS402215 via AS17497</span></span></div>
+          <div class="prow"><span class="cnt">&times;36</span><span>
+            <span class="pth">24482 6453 2914 21859 62610 151177</span>
+            <span class="tag">previous origin AS151177, separate transit</span></span></div>
+        </div>
+      </div>
+    </div>
+    <figcaption>
+      Source: <span class="m">paths</span>, with prepending resolved. Paths read right to
+      left toward the origin, so the rightmost number is the network claiming the addresses.
+      The two origins arrive through entirely separate transit, AS402215 through AS17497 and
+      AS151177 through AS62610, which is why the AS17497 event removed one and left the
+      other. Visibility for this prefix is otherwise healthy: 324 peers against a sibling
+      median of 317, a ratio of 1.02.
+    </figcaption>
+  </figure>
+
+  <!-- ================= 07 ================= -->
+  <div class="h2-rule">
+    <span class="num">07</span>
+    <h2>Structural fragility, and the limits of this analysis</h2>
+  </div>
+
+  <div class="col">
+    <p>
+      The outages are not bad luck. A <span class="m">health_check</span> across 87 prefixes
+      found 7 of 8 sampled blocks reaching the routing table through a single upstream, a
+      medium-severity finding and a direct explanation for why one provider&rsquo;s bad hour
+      removes a set of prefixes outright. The response carried a
+      <span class="m">sampled_checks</span> warning, bounding transit, visibility and
+      unrouted checks to 8 prefixes each, so the true single-homed count across all 94 is
+      unknown.
+    </p>
+    <p>
+      Filtering is visible as well. <span class="m">2.26.184.0/24</span> is seen by 184
+      peers against a sibling median of 324, or 57%, and the response raised both a
+      <span class="m">single_upstream</span> and an explicit <span class="m">filtered</span>
+      warning. Somebody upstream is dropping this prefix.
+    </p>
+    <p>
+      AS402215 itself is six months old, registered on 20 February 2026 to Devology Tech LLC,
+      with an abuse contact at devology.tech and no PeeringDB record: no listed facilities
+      and no internet exchange presence. A <span class="m">locate</span> call could not place
+      it, returning an empty facility intersection across its upstreams, and noted that
+      external GeoIP cross-checks are not wired into this API. We have no reliable geography
+      for this network.
+    </p>
+  </div>
+
+  <div class="note warn">
+    <span class="label">Where the evidence runs out</span>
+    <p>
+      <b>Intent is not observable.</b> Everything above is consistent with an address broker
+      or leasing business operating carelessly, and equally consistent with something less
+      benign wearing correct paperwork. Routing and registry data cannot separate those, and
+      this report does not try.
+    </p>
+    <p>
+      <b>The transfers were verified on a sample.</b> We ran
+      <span class="m">validate_announcement</span> on 8 of 94 prefixes. Seven returned
+      <span class="m">netutils-mnt</span> with a recent holder change; the eighth,
+      <span class="m">45.62.168.0/24</span>, had a settled and unrelated holder. Generalising
+      from eight to ninety-four is inference, and the two highlighted rows in section 04 are
+      the kind of case that could break it. Running
+      <span class="m">validate_announcement</span> across the full inventory would settle it.
+    </p>
+    <p>
+      <b>Short and regional events may be invisible.</b> Route collectors observe a sample of
+      the global routing system. The <span class="m">inventory</span> call also raised a
+      <span class="m">window_start_at_data_floor</span> warning, so a first-seen date landing
+      on the window edge is censored rather than meaningful.
+    </p>
+    <p>
+      <b>Registry names are labels.</b> DEVOLOGY, netutils-mnt and the upstream names in this
+      report record how resources are registered, not who operates them day to day.
+    </p>
+  </div>
+
+  <!-- ================= 08 ================= -->
+  <div class="h2-rule">
+    <span class="num">08</span>
+    <h2>Recommendations</h2>
+  </div>
+
+  <div class="recs">
+    <div class="rec">
+      <div>
+        <h4>Publish the ROA before the announcement, not after<span class="pri pri-hi">High</span></h4>
+        <p>
+          Ten RPKI-invalid episodes, every one avoidable. In each burst the announcement went
+          out while the previous holder&rsquo;s ROA was still published, and validating
+          networks dropped the route until a replacement appeared minutes to an hour later.
+          <span class="m">validate_announcement</span> returned <span class="m">warn</span>
+          with this exact caution on all eight blocks tested. Sequencing the ROA first
+          removes the entire category at no cost.
+        </p>
+      </div>
+    </div>
+    <div class="rec">
+      <div>
+        <h4>Confirm the previous holder has withdrawn before announcing<span class="pri pri-hi">High</span></h4>
+        <p>
+          Sixteen dual-origin conflicts, eleven of them simultaneous on 10 August, all
+          globally visible. It cuts both ways: AS146857 and AS147276 were still announcing
+          into AS402215&rsquo;s current ROAs on 13 August, days after the records moved. Make
+          a confirmed withdrawal on the outgoing side a precondition of the incoming
+          announcement.
+        </p>
+      </div>
+    </div>
+    <div class="rec">
+      <div>
+        <h4>Add a second upstream to the prefixes that matter<span class="pri pri-md">Medium</span></h4>
+        <p>
+          Seven of eight sampled prefixes are single-homed. On 12 August that turned one
+          provider&rsquo;s problem into 93 minutes of complete unreachability for
+          <span class="m">87.83.115.0/24</span> and near-complete for
+          <span class="m">151.247.1.0/24</span>. On 13 August the same structure cost
+          <span class="m">45.62.168.0/24</span> 15 minutes through a different provider. A
+          second transit relationship removes the single point of failure.
+        </p>
+      </div>
+    </div>
+    <div class="rec">
+      <div>
+        <h4>Find out why 2.26.184.0/24 is being filtered<span class="pri pri-md">Medium</span></h4>
+        <p>
+          It is visible to 184 peers where its siblings reach 324, and the platform raised an
+          explicit <span class="m">filtered</span> warning. Check for a stale IRR object, a
+          max-length mismatch on the covering ROA, or an upstream prefix-list left unchanged
+          since the block moved.
+        </p>
+      </div>
+    </div>
+    <div class="rec">
+      <div>
+        <h4>For operators peering with or filtering AS402215, treat its prefix list as unstable<span class="pri pri-md">Medium</span></h4>
+        <p>
+          Three quarters of this ASN&rsquo;s announced space is intermittent or transient, and
+          52 distinct prefixes produced first-time origin claims in eleven days. A filter
+          built from a snapshot of the inventory will be wrong within days. Validate against
+          RPKI at announcement time rather than caching a prefix list.
+        </p>
+      </div>
+    </div>
+    <div class="rec">
+      <div>
+        <h4>Re-run this workup over a 60-day window<span class="pri pri-lo">Low</span></h4>
+        <p>
+          Eleven days characterises the pattern but cannot date its start, because the
+          <span class="m">inventory</span> call hit the data floor at the window edge. A wider
+          window would show whether the 10 and 12 August waves are the operating norm or an
+          escalation, and would let the <span class="m">irr_invalid_asn</span> counts, not
+          re-queried here, be pinned down exactly.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <h3>Sources and scope</h3>
+    <p>
+      Routing data is drawn from public BGP route collectors; registry, RPKI and IRR
+      records from public RDAP, whois and RPKI repositories. The review covers
+      2026-08-03 to 2026-08-13. Route collectors observe a sample of the global routing
+      system, so a short or regionally contained event may be partly or wholly
+      unobserved. Peer counts describe observation points, not users affected.
+    </p>
+    <p>
+      Tools used: <span class="m">identify</span>, <span class="m">inventory</span>,
+      <span class="m">detections</span>, <span class="m">platform_baseline</span>,
+      <span class="m">timeline</span>, <span class="m">compare_windows</span>,
+      <span class="m">origin_history</span>, <span class="m">paths</span>,
+      <span class="m">visibility</span>, <span class="m">reachability</span>,
+      <span class="m">validate_announcement</span>, <span class="m">health_check</span> and
+      <span class="m">locate</span>. Counts of prefixes, days, announcements, origins and
+      paths come from pre-aggregated daily rollups. The reachability figures in section 06
+      are the only numbers reconstructed from individual BGP messages, and no comparison in
+      this report mixes the two. API warnings bearing on a claim are stated where the claim
+      is made: <span class="m">window_start_at_data_floor</span>,
+      <span class="m">sampled_baseline</span>, <span class="m">sampled_checks</span>,
+      <span class="m">multi_prefix</span>, <span class="m">single_upstream</span>,
+      <span class="m">filtered</span> and <span class="m">geoip_unavailable</span>.
+    </p>
+  </div>
+
+  <footer>
+    <p>BGPHorizon &middot; generated 2026-08-14 01:56 UTC from public routing and registry data.</p>
+  </footer>
+
+</div>

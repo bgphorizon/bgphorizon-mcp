@@ -89,7 +89,7 @@ def _selftest(mcp, settings) -> int:
     resources = asyncio.run(mcp.list_resources())
     prompts = asyncio.run(mcp.list_prompts())
     line(len(tools) == 15, f"{len(tools)} tools")
-    line(len(resources) == 5, f"{len(resources)} resources")
+    line(len(resources) == 8, f"{len(resources)} resources")
     line(len(prompts) == 7, f"{len(prompts)} prompts")
 
     return 0 if ok else 1
