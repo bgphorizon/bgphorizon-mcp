@@ -1,0 +1,262 @@
+<!--
+  BGPHorizon report skeleton.
+
+  Usage:
+    1. Copy this file to <slug>.html
+    2. Inline template-assets/report.css into the <style> block below
+       (self-contained output is required for artifact publishing and PDF)
+    3. Replace every {{PLACEHOLDER}}
+    4. Delete unused component blocks
+    5. Run reporting/build-report.sh <slug>.html
+    6. Work reporting/QA-CHECKLIST.md before publishing
+
+  Component reference is at the bottom of this file.
+-->
+<title>{{TITLE}}</title>
+
+<style>
+/* ---- inline the contents of template-assets/report.css here ---- */
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="brand"><span class="wm">BGP<em>Horizon</em></span></div>
+    <div class="kicker">Routing Report</div>
+  </header>
+
+  <div class="col">
+    <p class="eyebrow">Report &middot; {{DATE}}</p>
+    <h1>{{TITLE}}</h1>
+    <p class="standfirst">
+      {{STANDFIRST — 3–4 sentences stating the finding. No suspense. Name the
+      parties, say what happened, say whether it matters.}}
+    </p>
+  </div>
+
+  <div class="dateline">
+    <span>Generated {{TIMESTAMP}} UTC</span>
+    <!-- optional live badge:
+    <span class="live"><span class="dot" aria-hidden="true"></span>Event in progress</span> -->
+    <span>Window {{FROM}} &rarr; {{TO}}</span>
+    <span>{{SUBJECTS}}</span>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><span class="v">{{N}}</span><span class="k">{{label}}</span></div>
+    <div class="stat"><span class="v">{{N}}</span><span class="k">{{label}}</span></div>
+    <div class="stat accent"><span class="v">{{N}}</span><span class="k">{{label}}</span></div>
+    <div class="stat accent"><span class="v">0</span><span class="k">RPKI records</span></div>
+  </div>
+
+  <details>
+    <summary>Terms used in this report</summary>
+    <dl class="gloss">
+      <dt>BGP</dt>
+      <dd>The internet&rsquo;s routing system. Networks use it to advertise which blocks
+        of addresses they can deliver traffic for.</dd>
+      <dt>AS / AS number</dt>
+      <dd>Autonomous System. A numbered network under one administration, written
+        <span class="m">AS54994</span>.</dd>
+      <dt>Origin AS</dt>
+      <dd>The network that claims to hold the addresses. A prefix normally has exactly one.</dd>
+      <dt>Prefix</dt>
+      <dd>A block of addresses, written <span class="m">153.43.253.0/24</span>. A
+        <span class="m">/24</span> is 256 addresses; a <span class="m">/16</span> is 65,536.</dd>
+      <dt>MOAS</dt>
+      <dd>Multiple Origin AS. Two networks announcing the same prefix at the same time.</dd>
+      <dt>Withdrawal</dt>
+      <dd>A message saying a route is no longer available. A burst of withdrawals means
+        part of the internet briefly had no path to those addresses.</dd>
+      <dt>RPKI / ROA</dt>
+      <dd>Signed records stating which network may originate which prefix, so routers can
+        reject announcements that do not match.</dd>
+      <dt>IRR</dt>
+      <dd>Internet Routing Registry. A published database of intended routes that providers
+        use to build filters. Not cryptographically verified; stale entries persist.</dd>
+    </dl>
+  </details>
+
+  <!-- ================= 01 ================= -->
+  <div class="h2-rule">
+    <span class="num">01</span>
+    <h2>{{SECTION TITLE}}</h2>
+  </div>
+
+  <div class="col">
+    <p>{{PROSE — keep to the 68ch measure. Data blocks below break wider.}}</p>
+  </div>
+
+  <figure>
+    <div class="panel">
+      <div class="panel-hd"><h4>{{FIGURE TITLE}}</h4><span class="sub">{{context}}</span></div>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr><th class="mono">Prefix</th><th>Registrant</th>
+                <th style="text-align:right">Announcements</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="mono">{{cidr}}</td><td>{{name}}</td><td class="num">{{n}}</td></tr>
+            <tr class="hi"><td class="mono">{{cidr}}</td><td>{{name}}</td><td class="num">{{n}}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <figcaption>
+      {{What the reader should take away, plus the caveat. Registry-label caveat
+      belongs here.}}
+    </figcaption>
+  </figure>
+
+  <!-- ================= RECOMMENDATIONS ================= -->
+  <div class="h2-rule">
+    <span class="num">0N</span>
+    <h2>Recommendations</h2>
+  </div>
+
+  <div class="recs">
+    <div class="rec">
+      <div>
+        <h4>{{Action, imperative}}<span class="pri pri-hi">High</span></h4>
+        <p>{{What to do, and what changes if they do it.}}</p>
+      </div>
+    </div>
+    <div class="rec">
+      <div>
+        <h4>{{Action}}<span class="pri pri-md">Medium</span></h4>
+        <p>{{…}}</p>
+      </div>
+    </div>
+    <div class="rec">
+      <div>
+        <h4>{{Action}}<span class="pri pri-lo">Low</span></h4>
+        <p>{{…}}</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <h3>Sources and scope</h3>
+    <p>
+      Routing data is drawn from public BGP route collectors; registry, RPKI and IRR
+      records from public RDAP, whois and RPKI repositories. The review covers
+      {{FROM}} to {{TO}}. Route collectors observe a sample of the global routing
+      system, so a short or regionally contained event may be partly or wholly
+      unobserved. Peer counts describe observation points, not users affected.
+    </p>
+  </div>
+
+  <footer>
+    <p>BGPHorizon &middot; generated {{TIMESTAMP}} UTC from public routing and registry data.</p>
+  </footer>
+
+</div>
+
+<!--
+================================================================================
+COMPONENT REFERENCE — copy blocks in as needed, delete the rest
+================================================================================
+
+CALLOUT (three variants: default teal, .warn amber, .correction red)
+
+  <div class="note">
+    <span class="label">Assessment</span>
+    <p>Text.</p>
+  </div>
+
+--------------------------------------------------------------------------------
+DAILY VOLUME STRIP — one row per day
+
+  <div class="panel">
+    <div class="panel-hd"><h4>Daily announcements</h4><span class="sub">range</span></div>
+    <div class="daily">
+      <div class="dy"><span class="dy-d">06-27</span><span class="dy-t"><span class="dy-a"
+        style="width:100%"></span></span><span class="dy-v">18206</span></div>
+    </div>
+  </div>
+
+  Width = value / max * 100. Add a second <span class="dy-h"> to split out an
+  artifact series (e.g. one dominant collector).
+
+--------------------------------------------------------------------------------
+EVENT CURVE — reachability over time
+
+  <div class="curve">
+    <div class="cv"><span class="cv-t">05:52:00</span><span class="cv-tr"><span class="cv-b"
+      style="width:73.8%"></span></span><span class="cv-v">977</span></div>
+  </div>
+
+--------------------------------------------------------------------------------
+HANDOVER STRIP — one cell per day per prefix; shows who originated what
+
+  <div class="hand">
+    <div class="hv"><span class="hv-p">153.43.254.0/24</span><span class="hv-s">
+      <i class="hv-c" title="2026-07-08 court"></i>
+      <i class="hv-b" title="2026-07-09 both"></i>
+      <i class="hv-m" title="2026-07-10 new holder"></i>
+      <i class="hv-n" title="not announced"></i>
+    </span></div>
+    <div class="axis"><span></span><span class="axis-t">
+      <i class="tk on">May</i><i class="tk"></i>
+    </span></div>
+  </div>
+
+  hv-c = party A, hv-m = party B, hv-b = both, hv-n = not announced.
+  Always render hv-n explicitly — absence is data.
+
+--------------------------------------------------------------------------------
+PATH BLOCK — AS paths with annotation
+
+  <div class="paths">
+    <div class="pgroup">
+      <div class="ttl">Prefix or label</div>
+      <div class="when">date &middot; context</div>
+      <div class="prow"><span class="cnt">&times;1885</span><span>
+        <span class="pth">721 721 27064 1602</span>
+        <span class="tag">usual origin</span></span></div>
+      <div class="prow backup"><span class="cnt">&times;425</span><span>
+        <span class="pth">27066 1600 1600 1600</span>
+        <span class="tag">prepended 3&times;</span></span></div>
+    </div>
+  </div>
+
+  .backup highlights the non-default path. Read right to left; say so in the caption.
+
+--------------------------------------------------------------------------------
+EPISODE BARS — discrete dated events sized by magnitude
+
+  <div class="chart">
+    <div class="ep-row">
+      <span class="ep-date">2026-07-10</span>
+      <span class="ep-track"><span class="ep-bar"
+        style="width:100%;background:var(--orange)">label</span></span>
+      <span class="ep-n">112</span>
+    </div>
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--teal)"></i>Group A</span>
+    </div>
+  </div>
+
+--------------------------------------------------------------------------------
+INLINE UTILITIES
+
+  <span class="m">153.43.0.0/16</span>     monospace inline
+  <span class="m-em">unprotected</span>    monospace + accent (use for absence/alerts)
+  <td class="num">1,122</td>               right-aligned tabular numerals
+  <td class="mono">AS54994</td>            monospace cell
+  <td class="wrapcell">long text</td>      allows wrapping in a table
+  <tr class="hi">                          highlighted row
+  <div class="col">                        constrains prose to 68ch
+
+--------------------------------------------------------------------------------
+COLOUR SEMANTICS — keep consistent across every figure in one document
+
+  var(--teal)    party A / incumbent / baseline
+  var(--orange)  party B / successor / the thing that changed
+  var(--red)     conflict, both-at-once, critical
+  var(--ink-3)   measurement artifact, de-emphasised
+  var(--panel-2) absent / no data
+
+  Do not reuse a colour for a second meaning within one report.
+-->
