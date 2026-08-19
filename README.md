@@ -96,9 +96,9 @@ OpenAI Agents SDK, LangChain, n8n, VS Code) and reverse-proxy config.
 
 ## What's in the box
 
-**Investigation tools (12):** `identify`, `inventory`, `timeline`,
-`origin_history`, `reachability`, `detections`, `paths`, `compare_windows`,
-`locate`, `subprefixes`, `events_sample`, `platform_baseline`.
+**Investigation tools (13):** `identify`, `inventory`, `timeline`,
+`origin_history`, `reachability`, `detections`, `paths`, `relationships`,
+`compare_windows`, `locate`, `subprefixes`, `events_sample`, `platform_baseline`.
 
 **Operator tools (3):** `health_check`, `validate_announcement`, `visibility`.
 

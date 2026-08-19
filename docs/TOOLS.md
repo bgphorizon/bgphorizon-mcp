@@ -209,6 +209,32 @@ Transit structure with prepending resolved.
 
 ---
 
+## `relationships`
+
+An ASN's transit hierarchy over a date window: **upstreams** (its providers) and
+**downstreams** (its customers), plus observed neighbours of unknown type. Inferred
+provider→customer, Tier-1-anchored (~94% agreement with CAIDA). Peering is **not**
+inferred — `other_connections` are observed adjacencies, not confirmed peers.
+
+```jsonc
+{ "name": "relationships",
+  "inputSchema": { "type": "object", "required": ["asn"], "properties": {
+    "asn": { "type": "integer" }, "start": { "type": "string" }, "end": { "type": "string" } } } }
+```
+
+```jsonc
+{ "asn": 15169,
+  "window": { "from": "2026-07-19", "to": "2026-08-17" },
+  "upstreams":   [{ "asn": 6453, "name": "TATA", "confidence": 0.98, "vantage_count": 310, "days_present": 30 }],
+  "downstreams": [{ "asn": 396982, "name": "Google Cloud", "confidence": 0.9, "vantage_count": 42, "days_present": 30 }],
+  "other_connections": [{ "asn": 13335, "name": "Cloudflare", "vantage_count": 180, "days_present": 30 }],
+  "counts": { "upstreams": 6, "downstreams": 22, "other_connections": 410, "neighbors": 438 },
+  "warnings": [{ "code": "peering_not_inferred",
+                 "message": "other_connections are observed adjacencies of unknown type, not confirmed peers." }] }
+```
+
+---
+
 ## `compare_windows`
 
 Baseline versus event.

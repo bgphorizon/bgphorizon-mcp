@@ -389,6 +389,59 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
             "meta": meta("rollup"),
         }
 
+    # -- relationships -------------------------------------------------------
+    @mcp.tool()
+    def relationships(
+        asn: int,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+    ) -> dict:
+        """An ASN's transit hierarchy over a window: upstreams (its providers) and
+        downstreams (its customers), plus observed neighbours whose relationship is
+        unknown.
+
+        Relationships are inferred provider->customer, Tier-1-anchored (~94% agreement
+        with CAIDA). Peering is NOT inferred: `other_connections` are adjacencies we
+        observed but cannot classify — do not present them as confirmed peers. Results
+        reflect the requested date window; relationships change over time."""
+        norm = normalize_asn(asn)
+        start, end = default_window(start, end, days=30)
+        resp = client.asn_relationships(norm, start_date=start, end_date=end)
+
+        def shape(rows: list[dict]) -> list[dict]:
+            return [
+                {
+                    "asn": r.get("asn"),
+                    "name": r.get("name"),
+                    "confidence": r.get("confidence"),
+                    "vantage_count": r.get("vantage_count"),
+                    "days_present": r.get("days_present"),
+                }
+                for r in (rows or [])
+            ]
+
+        return {
+            "asn": norm,
+            "window": {"from": start, "to": end},
+            "upstreams": shape(resp.get("upstreams")),
+            "downstreams": shape(resp.get("downstreams")),
+            "other_connections": shape(resp.get("other_connections")),
+            "counts": {
+                "upstreams": resp.get("upstream_count"),
+                "downstreams": resp.get("downstream_count"),
+                "other_connections": resp.get("other_connection_count"),
+                "neighbors": resp.get("neighbor_count"),
+            },
+            "warnings": [
+                warning(
+                    "peering_not_inferred",
+                    "Peering is not reliably inferable from routing data; "
+                    "other_connections are observed adjacencies of unknown type, not confirmed peers.",
+                )
+            ],
+            "meta": meta("rollup", method=(resp.get("meta") or {}).get("method")),
+        }
+
     # -- compare_windows -----------------------------------------------------
     @mcp.tool()
     def compare_windows(
