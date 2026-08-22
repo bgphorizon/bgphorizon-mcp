@@ -4,7 +4,7 @@ An [MCP](https://modelcontextprotocol.io) server that exposes **BGPHorizon** —
 global BGP routing intelligence — to any MCP-capable LLM client (Claude Code,
 Claude Desktop, Cursor, Gemini CLI, OpenAI Agents, …).
 
-It is not a thin wrapper over the REST API. The surface is **15 task-shaped
+It is not a thin wrapper over the REST API. The surface is **17 task-shaped
 tools** built around the operations investigators and operators actually perform,
 each returning aggregates plus `warnings[]` so a model cannot silently misread the
 data (persistence, single-vantage-point concentration, censored `first_seen`, …).
@@ -23,7 +23,7 @@ panel), passed as `BGPHORIZON_API_KEY`.
 
 ```bash
 export BGPHORIZON_API_KEY=bgps_xxx
-uvx bgphorizon-mcp --selftest      # ✓ API reachable ✓ key valid ✓ 15 tools ✓ 8 resources ✓ 7 prompts
+uvx bgphorizon-mcp --selftest      # ✓ API reachable ✓ key valid ✓ 17 tools ✓ 8 resources ✓ 7 prompts
 ```
 
 `uvx bgphorizon-mcp` fetches and runs on demand — nothing to install first. Or
@@ -96,9 +96,9 @@ OpenAI Agents SDK, LangChain, n8n, VS Code) and reverse-proxy config.
 
 ## What's in the box
 
-**Investigation tools (13):** `identify`, `inventory`, `timeline`,
+**Investigation tools (14):** `identify`, `inventory`, `timeline`,
 `origin_history`, `reachability`, `detections`, `paths`, `relationships`,
-`compare_windows`, `locate`, `subprefixes`, `events_sample`, `platform_baseline`.
+`path_diversity`, `compare_windows`, `locate`, `subprefixes`, `events_sample`, `platform_baseline`.
 
 **Operator tools (3):** `health_check`, `validate_announcement`, `visibility`.
 

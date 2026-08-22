@@ -1,8 +1,8 @@
 # MCP Tool Schemas
 
-Fifteen tools across two personas:
+Seventeen tools across two personas:
 
-- **Investigation** (12) — analysing a network you do not run
+- **Investigation** (14) — analysing a network you do not run
 - **Operator** (3) — watching one you do
 
 Each maps to an analytical operation, not an endpoint.
@@ -231,6 +231,40 @@ inferred — `other_connections` are observed adjacencies, not confirmed peers.
   "counts": { "upstreams": 6, "downstreams": 22, "other_connections": 410, "neighbors": 438 },
   "warnings": [{ "code": "peering_not_inferred",
                  "message": "other_connections are observed adjacencies of unknown type, not confirmed peers." }] }
+```
+
+---
+
+## `path_diversity`
+
+How an origin's announcements **fan out through its upstreams toward our collectors** — the
+observed propagation tree, weighted by how many vantage points take each branch. Built only
+from real AS paths (no inference). Each level-1 `share` is the fraction of vantage points
+(that see the origin at all) whose path leaves via that upstream: a single branch near `1.0`
+= effectively single-threaded through that provider; balanced branches = redundant transit.
+`is_tier1` marks where a branch reaches the Tier-1 core. Pass `prefix` (a CIDR the ASN
+originates) to scope the tree — and the %s — to one route (e.g. a MOAS prefix). This is the
+control-plane route spread, **not a traceroute**: peering and IXP handoffs are invisible to
+collectors. `diverse=false` (read `reason`) means single-threaded or too thinly observed.
+Default window 14 days.
+
+```jsonc
+{ "name": "path_diversity",
+  "inputSchema": { "type": "object", "required": ["asn"], "properties": {
+    "asn": { "type": "integer" }, "prefix": { "type": "string" },
+    "start": { "type": "string" }, "end": { "type": "string" } } } }
+```
+
+```jsonc
+{ "asn": 44620, "prefix": null, "window": { "from": "2026-08-07", "to": "2026-08-21" },
+  "diverse": true, "reason": null, "total_vantage_points": 363,
+  "upstreams": [{ "asn": 208972, "name": "…", "share": 0.62, "vantage_points": 225, "is_tier1": false },
+                { "asn": 3223, "name": "…", "share": 0.30, "vantage_points": 110, "is_tier1": false }],
+  "tree": { "nodes": [{ "asn": 44620, "level": 0, "is_tier1": false, "feeds": 363 }],
+            "edges": [{ "inner": 44620, "outer": 208972, "level": 1, "feeds": 225, "share": 0.62 }],
+            "max_level": 3 },
+  "warnings": [{ "code": "observed_not_traceroute",
+                 "message": "Control-plane route spread across upstreams, not a data-plane path." }] }
 ```
 
 ---

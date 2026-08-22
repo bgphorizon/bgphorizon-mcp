@@ -47,7 +47,7 @@ with the house CSS already inlined). You just don't get the local build/render s
    you invoke it directly; anywhere else, just say *"write a BGP report on AS13335 over
    the last 60 days."*
 
-That's it. The model uses the 15 tools to gather evidence and the bundled
+That's it. The model uses the 17 tools to gather evidence and the bundled
 `report-template` resource to produce a single self-contained HTML file.
 
 ## Per-client setup

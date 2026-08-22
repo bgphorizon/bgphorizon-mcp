@@ -1,4 +1,4 @@
-"""Investigation tools (12) — analysing a network you do not run.
+"""Investigation tools (14) — analysing a network you do not run.
 
 Each tool is an analytical operation, not a REST route: it composes one or more
 ``/api/v1`` calls and annotates the result with ``warnings`` so the model cannot
@@ -403,7 +403,11 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         Relationships are inferred provider->customer, Tier-1-anchored (~94% agreement
         with CAIDA). Peering is NOT inferred: `other_connections` are adjacencies we
         observed but cannot classify — do not present them as confirmed peers. Results
-        reflect the requested date window; relationships change over time."""
+        reflect the requested date window; relationships change over time.
+
+        This is the transit TOPOLOGY (who provides transit to whom). For observed USAGE —
+        which of those upstreams actually carry the network's routes and how lopsided that
+        is — use `path_diversity`; the two are complementary."""
         norm = normalize_asn(asn)
         start, end = default_window(start, end, days=30)
         resp = client.asn_relationships(norm, start_date=start, end_date=end)
@@ -440,6 +444,96 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
                 )
             ],
             "meta": meta("rollup", method=(resp.get("meta") or {}).get("method")),
+        }
+
+    # -- path_diversity ------------------------------------------------------
+    @mcp.tool()
+    def path_diversity(
+        asn: int,
+        prefix: Optional[str] = None,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+    ) -> dict:
+        """How an origin's announcements FAN OUT through its upstreams toward our
+        collectors — the observed propagation / path-diversity tree, weighted by how
+        many vantage points take each branch.
+
+        Built ONLY from real observed AS paths (no inference), so it answers with high
+        confidence: which upstreams actually carry this network's routes, and how
+        lopsided that is. Each level-1 branch's `share` is the fraction of vantage points
+        (of the `total_vantage_points` that see the origin) that reach it via that
+        upstream, counted as DISTINCT collector+peer feeds. Shares are per-upstream
+        coverage, not a partition — a network reached through several upstreams will have
+        several high shares, so they can sum past 1.0. One dominant upstream with the rest
+        low = effectively single-threaded; several high shares = redundant transit.
+        `is_tier1` marks where a branch reaches the Tier-1 core.
+
+        Pass `prefix` (a CIDR the ASN originates) to scope the tree to ONE prefix — useful
+        for a MOAS prefix or to check a specific route's redundancy; the % then reflects
+        just that prefix's paths.
+
+        NOT a traceroute: this is the control-plane spread of routes across upstreams as
+        seen from route collectors, not the data-plane path a packet takes (peering and
+        IXP handoffs are invisible to collectors). `diverse=false` means the origin is
+        single-threaded or too thinly observed for a meaningful diversity view — read
+        `reason`. Default window is 14 days (current routing); widen it for more history."""
+        norm = normalize_asn(asn)
+        start, end = default_window(start, end, days=14)
+        resp = client.asn_propagation(norm, prefix=prefix, start_date=start, end_date=end)
+
+        nodes = resp.get("nodes") or []
+        edges = resp.get("edges") or []
+        name_of = {n.get("asn"): n.get("name") for n in nodes}
+        tier1_of = {n.get("asn"): bool(n.get("is_tier1")) for n in nodes}
+
+        # Level-1 branches (direct upstreams of the origin) = the headline signal.
+        direct = sorted(
+            (e for e in edges if e.get("inner") == norm),
+            key=lambda e: e.get("share") or 0,
+            reverse=True,
+        )
+        upstreams = [
+            {
+                "asn": e.get("outer"),
+                "name": name_of.get(e.get("outer")),
+                "share": round(e.get("share") or 0, 3),
+                "vantage_points": e.get("feeds"),
+                "is_tier1": tier1_of.get(e.get("outer"), False),
+            }
+            for e in direct
+        ]
+
+        warnings = [
+            warning(
+                "observed_not_traceroute",
+                "Control-plane route spread across upstreams as seen from collectors — "
+                "not a data-plane/traceroute path. Peering and IXP handoffs are not visible.",
+            )
+        ]
+        if not resp.get("diverse"):
+            warnings.append(
+                warning(
+                    "not_diverse",
+                    resp.get("reason")
+                    or "Origin is single-threaded or too thinly observed for a diversity view.",
+                )
+            )
+        if resp.get("truncated"):
+            warnings.append(
+                warning("truncated", "Tree truncated for legibility (large/complex origin).")
+            )
+
+        return {
+            "asn": norm,
+            "prefix": resp.get("prefix") or prefix,
+            "window": {"from": start, "to": end},
+            "diverse": resp.get("diverse", False),
+            "reason": resp.get("reason"),
+            "total_vantage_points": resp.get("total_feeds"),
+            "upstreams": upstreams,
+            "tree": {"nodes": nodes, "edges": edges, "max_level": resp.get("max_level")},
+            "warnings": warnings,
+            "meta": meta("raw_events", method=(resp.get("meta") or {}).get("method")),
         }
 
     # -- compare_windows -----------------------------------------------------

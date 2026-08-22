@@ -140,7 +140,11 @@ prioritised remediation list a network engineer can act on.
 
 1. `health_check(asn=...)` — this is the audit: RPKI/IRR coverage, MOAS, ROA \
 max-length exposure, transit diversity, visibility, unrouted space.
-2. For any high-severity finding, drill in: `visibility` for filtered prefixes, \
+2. `path_diversity(asn=...)` — is transit actually redundant, or does most of the \
+internet reach this network through a single upstream? A dominant branch near 100% \
+is a single-point-of-failure worth flagging even when two upstreams are configured. \
+Scope to a critical prefix with `prefix=...` to check that route specifically.
+3. For any high-severity finding, drill in: `visibility` for filtered prefixes, \
 `validate_announcement` to confirm what a fix would need.
 
 Present findings ordered by severity (high → low). For each: what is wrong, which \
