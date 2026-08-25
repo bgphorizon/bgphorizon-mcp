@@ -4,7 +4,7 @@ An [MCP](https://modelcontextprotocol.io) server that exposes **BGPHorizon** —
 global BGP routing intelligence — to any MCP-capable LLM client (Claude Code,
 Claude Desktop, Cursor, Gemini CLI, OpenAI Agents, …).
 
-It is not a thin wrapper over the REST API. The surface is **17 task-shaped
+It is not a thin wrapper over the REST API. The surface is **18 task-shaped
 tools** built around the operations investigators and operators actually perform,
 each returning aggregates plus `warnings[]` so a model cannot silently misread the
 data (persistence, single-vantage-point concentration, censored `first_seen`, …).
@@ -23,7 +23,7 @@ panel), passed as `BGPHORIZON_API_KEY`.
 
 ```bash
 export BGPHORIZON_API_KEY=bgps_xxx
-uvx bgphorizon-mcp --selftest      # ✓ API reachable ✓ key valid ✓ 17 tools ✓ 8 resources ✓ 7 prompts
+uvx bgphorizon-mcp --selftest      # ✓ API reachable ✓ key valid ✓ 18 tools ✓ 8 resources ✓ 7 prompts
 ```
 
 `uvx bgphorizon-mcp` fetches and runs on demand — nothing to install first. Or
@@ -91,14 +91,15 @@ bgphorizon-mcp --transport http --port 8931 --require-auth
 ```
 
 Put it behind TLS with `proxy_buffering off` for streaming. See
-[`docs/SETUP.md`](docs/SETUP.md) for every client (Gemini CLI,
+[`../docs/mcp/SETUP.md`](../docs/mcp/SETUP.md) for every client (Gemini CLI,
 OpenAI Agents SDK, LangChain, n8n, VS Code) and reverse-proxy config.
 
 ## What's in the box
 
-**Investigation tools (14):** `identify`, `inventory`, `timeline`,
+**Investigation tools (15):** `identify`, `inventory`, `timeline`,
 `origin_history`, `reachability`, `detections`, `paths`, `relationships`,
-`path_diversity`, `compare_windows`, `locate`, `subprefixes`, `events_sample`, `platform_baseline`.
+`path_diversity`, `translate_communities`, `compare_windows`, `locate`, `subprefixes`, `events_sample`,
+`platform_baseline`.
 
 **Operator tools (3):** `health_check`, `validate_announcement`, `visibility`.
 
@@ -113,8 +114,8 @@ still writes house-style reports.
 `explain_incident` — where the house methodology lives. In Claude Code they surface
 as `/bgphorizon:audit_my_network`, etc.
 
-Full tool contracts: [`docs/TOOLS.md`](docs/TOOLS.md).
-Design rationale and full docs: <https://bgphorizon.com/docs/mcp>.
+Full tool contracts: [`../docs/mcp/TOOLS.md`](../docs/mcp/TOOLS.md).
+Design rationale: [`../docs/mcp/SERVER-DESIGN.md`](../docs/mcp/SERVER-DESIGN.md).
 
 ## Writing investigative reports
 

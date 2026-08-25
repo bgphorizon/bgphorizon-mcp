@@ -1,4 +1,4 @@
-"""Investigation tools (14) — analysing a network you do not run.
+"""Investigation tools (15) — analysing a network you do not run.
 
 Each tool is an analytical operation, not a REST route: it composes one or more
 ``/api/v1`` calls and annotates the result with ``warnings`` so the model cannot
@@ -534,6 +534,63 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
             "tree": {"nodes": nodes, "edges": edges, "max_level": resp.get("max_level")},
             "warnings": warnings,
             "meta": meta("raw_events", method=(resp.get("meta") or {}).get("method")),
+        }
+
+    # -- translate_communities -----------------------------------------------
+    @mcp.tool()
+    def translate_communities(communities: list[str]) -> dict:
+        """Translate raw BGP community strings (e.g. "3356:2065", "1299:2731") into their
+        meaning, from a dictionary harvested from operators' own IRR objects, NLNOG, and the
+        IANA/RFC well-knowns.
+
+        Each result carries: `known` (false = no published definition — don't guess a meaning),
+        `category` (informational | action), `subtype` (geo | prepend | localpref | blackhole |
+        no-export | relationship | …), `description`, optional geo, and the OWNER AS (the left
+        side) with its resolved name — which is useful even when the community itself is
+        unknown ("it's AS3356/Lumen's community"). `inferred=true` marks a meaning taken from a
+        near-universal CONVENTION (e.g. any `:666`/`:9999` = blackhole) rather than something
+        the owner published — present those as conventional, not authoritative. `matched_by`
+        shows the wildcard pattern that matched, when it wasn't an exact literal."""
+        cleaned = [c.strip() for c in (communities or []) if c and c.strip()]
+        if not cleaned:
+            raise ValueError("provide at least one community, e.g. ['3356:2065']")
+        resp = client.communities_translate(",".join(cleaned[:512]))
+
+        out = []
+        for r in resp.get("results", []):
+            entry = {
+                "community": r.get("community"),
+                "known": r.get("known", False),
+                "owner_asn": r.get("owner_asn"),
+                "owner_name": r.get("owner_name"),
+            }
+            if r.get("known"):
+                entry.update({
+                    "category": r.get("category"),
+                    "subtype": r.get("subtype"),
+                    "description": r.get("description"),
+                })
+                geo = ", ".join(x for x in (r.get("geo_city"), r.get("geo_country")) if x)
+                if geo:
+                    entry["geo"] = geo
+                if r.get("inferred"):
+                    entry["inferred"] = True  # from a convention, not published
+                if r.get("matched_by"):
+                    entry["matched_by"] = r.get("matched_by")
+                if r.get("source"):
+                    entry["source"] = r.get("source")
+            out.append(entry)
+
+        return {
+            "results": out,
+            "warnings": [
+                warning(
+                    "unknown_communities_not_guessed",
+                    "Communities with known=false have no published definition; the owner AS is "
+                    "still named. Do not invent a meaning for them.",
+                )
+            ],
+            "meta": meta("composed", **{k: v for k, v in (resp.get("meta") or {}).items() if k in ("dictionary_size", "attribution")}),
         }
 
     # -- compare_windows -----------------------------------------------------

@@ -1,8 +1,8 @@
 # MCP Tool Schemas
 
-Seventeen tools across two personas:
+Eighteen tools across two personas:
 
-- **Investigation** (14) — analysing a network you do not run
+- **Investigation** (15) — analysing a network you do not run
 - **Operator** (3) — watching one you do
 
 Each maps to an analytical operation, not an endpoint.
@@ -265,6 +265,35 @@ Default window 14 days.
             "max_level": 3 },
   "warnings": [{ "code": "observed_not_traceroute",
                  "message": "Control-plane route spread across upstreams, not a data-plane path." }] }
+```
+
+---
+
+## `translate_communities`
+
+Decode raw BGP community strings into meaning, from a dictionary harvested from operators'
+own IRR objects + NLNOG (ISC) + the IANA/RFC well-knowns. `known:false` = no published
+definition (don't guess); the owner AS (left side) is still named. `inferred:true` marks a
+near-universal convention (e.g. any `:666`/`:9999` = blackhole), not something the owner
+published. `matched_by` is the wildcard pattern that matched, if any.
+
+```jsonc
+{ "name": "translate_communities",
+  "inputSchema": { "type": "object", "required": ["communities"], "properties": {
+    "communities": { "type": "array", "items": { "type": "string" },
+                     "description": "e.g. [\"3356:2065\", \"30844:666\"]" } } } }
+```
+
+```jsonc
+{ "results": [
+    { "community": "3356:2065", "known": true, "owner_asn": 3356, "owner_name": "Lumen",
+      "category": "informational", "subtype": "geo", "description": "FRF1 - Frankfurt", "geo": "Frankfurt", "source": "nlnog" },
+    { "community": "30844:666", "known": true, "owner_asn": 30844, "owner_name": "Liquid Telecom",
+      "category": "action", "subtype": "blackhole", "inferred": true, "source": "convention",
+      "description": "Blackhole (RTBH) — inferred from the common :666 convention…" },
+    { "community": "64500:12", "known": false, "owner_asn": 64500, "owner_name": null } ],
+  "warnings": [{ "code": "unknown_communities_not_guessed",
+                 "message": "known=false communities have no published definition; the owner AS is still named." }] }
 ```
 
 ---

@@ -119,6 +119,9 @@ class BGPHorizonClient:
     def asn_propagation(self, asn: int | str, **p: Any) -> Any:
         return self.get("/asn/propagation", asn=asn, **p)
 
+    def communities_translate(self, communities: str, **p: Any) -> Any:
+        return self.get("/communities/translate", communities=communities, **p)
+
     def prefix_overview(self, prefix: str, **p: Any) -> Any:
         return self.get("/prefix/overview", prefix=prefix, **p)
 

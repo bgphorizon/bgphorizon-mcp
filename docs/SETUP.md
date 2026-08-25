@@ -45,7 +45,7 @@ docker run -i --rm -e BGPHORIZON_API_KEY ghcr.io/bgphorizon/bgphorizon-mcp:lates
 ```bash
 export BGPHORIZON_API_KEY=bgps_xxx
 uvx bgphorizon-mcp --selftest
-# ✓ API reachable   ✓ key valid   ✓ 17 tools   ✓ 5 resources   ✓ 7 prompts
+# ✓ API reachable   ✓ key valid   ✓ 18 tools   ✓ 5 resources   ✓ 7 prompts
 ```
 
 ---
