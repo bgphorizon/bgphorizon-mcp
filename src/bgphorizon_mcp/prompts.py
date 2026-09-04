@@ -1,4 +1,4 @@
-"""Prompts (7) — where methodology lives.
+"""Prompts (8) — where methodology lives.
 
 Prompts embed the house procedure so a model that has never seen BGP data
 produces correct, house-style output without the user pasting instructions. The
@@ -48,6 +48,35 @@ transitions. This is where a handover is confirmed or a blip is dismissed.
 {_GUARDRAILS}
 
 Output a concise findings list: each finding with its evidence and a confidence note."""
+
+    @mcp.prompt(
+        name="alert_report",
+        title="Write up my alerts for a period",
+        description="Pull your own monitoring alerts over a window and write them up.",
+    )
+    def alert_report(window: str = "today", focus: Optional[str] = None) -> str:
+        scope = f" Focus the write-up on {focus}." if focus else ""
+        return f"""Pull the alerts my monitors fired over: {window}, and write them up.{scope}
+
+Path:
+1. `my_alerts(window="{window}")` — this is the whole input. It returns the alerts \
+plus totals by detection type, severity and monitor.
+2. If the volume is dominated by one monitor or one detection type, call \
+`my_monitors(window="{window}")` to say what was under watch and which watches are noisy.
+3. Investigate only what the alerts justify: `detections` or `origin_history` on the \
+specific prefixes that fired something anomalous. Do not sweep the platform — this is a \
+report about MY monitoring, not global routing.
+
+Rules for this write-up:
+- Lead with the totals and the window, stated as absolute times from `meta.window`.
+- Separate SECURITY findings (RPKI invalid, MOAS, new origin, path anomalies) from \
+INFORMATIONAL churn (ROA/IRR changes, unregistered routes, new prefixes). A window that \
+is all informational is a quiet period — say so; do not dress it up.
+- Attribute volume before generalising: if one monitor produced most alerts, name it.
+- If `warnings[]` says the result was truncated, say the per-alert detail is partial.
+- If nothing fired, the report is one short paragraph saying so. That is a valid result.
+
+{_GUARDRAILS}"""
 
     @mcp.prompt(
         name="write_report",

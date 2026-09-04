@@ -134,6 +134,9 @@ class BGPHorizonClient:
     def prefix_hierarchy(self, prefix: str) -> Any:
         return self.get("/prefix/hierarchy", prefix=prefix)
 
+    def prefix_visibility(self, prefix: str, **p: Any) -> Any:
+        return self.get("/prefix/visibility", prefix=prefix, **p)
+
     # Analytical primitives
 
     def timeseries(self, target: str, **p: Any) -> Any:
@@ -144,6 +147,9 @@ class BGPHorizonClient:
 
     def reachability(self, prefix: str, **p: Any) -> Any:
         return self.get("/prefix/reachability", prefix=prefix, **p)
+
+    def notable_events(self, **p: Any) -> Any:
+        return self.get("/detections/notable", **p)
 
     def registry_bulk(self, body: dict) -> Any:
         return self.post("/registry/bulk", body)
@@ -181,6 +187,14 @@ class BGPHorizonClient:
 
     def detections_prefix(self, prefix: str, **p: Any) -> Any:
         return self.get("/detections/prefix", prefix=prefix, **p)
+
+    # The caller's own monitoring (their watchlist + the alerts it fired)
+
+    def notifications(self, **p: Any) -> Any:
+        return self.get("/notifications", **p)
+
+    def monitors(self, **p: Any) -> Any:
+        return self.get("/monitors", **p)
 
     # Composed
 

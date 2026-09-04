@@ -1,4 +1,4 @@
-"""Investigation tools (15) — analysing a network you do not run.
+"""Investigation tools (17) — analysing a network you do not run.
 
 Each tool is an analytical operation, not a REST route: it composes one or more
 ``/api/v1`` calls and annotates the result with ``warnings`` so the model cannot
@@ -312,6 +312,28 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         if len(results) == 1:
             out.update(results[0])
         return out
+
+    # -- global reach --------------------------------------------------------
+    @mcp.tool()
+    def global_reach(prefix: str) -> dict:
+        """How globally reachable a prefix is: the share of full-table feeds that see it over a
+        30-day footprint, classified global / regional / local, with a per-region penetration
+        breakdown. Distinct from ``reachability`` (which tracks per-peer routeless windows over a
+        tight time span) — this answers "is this prefix propagated worldwide, or only in some
+        regions?". A regional or local result can indicate a route leak, upstream filtering, or
+        limited propagation. Region reflects the observing collector's location (a vantage proxy),
+        not the announcing network's geography."""
+        v = client.prefix_visibility(prefix)
+        return {
+            "prefix": v.get("prefix", prefix),
+            "reach_pct": v.get("pct"),
+            "class": v.get("class"),
+            "seen_feeds": v.get("seen_feeds"),
+            "total_feeds": v.get("total_feeds"),
+            "window_days": v.get("window_days"),
+            "regions": v.get("regions", []),
+            "meta": meta("rollup", window_days=v.get("window_days", 30)),
+        }
 
     # -- detections ----------------------------------------------------------
     @mcp.tool()
@@ -846,4 +868,62 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
             "breakdown": breakdown,
             "warnings": warnings,
             "meta": meta("registry"),
+        }
+
+    # -- notable_events ------------------------------------------------------
+    @mcp.tool()
+    def notable_events(
+        hours: Annotated[int, Field(ge=1, le=168)] = 24,
+        limit: Annotated[int, Field(ge=1, le=100)] = 25,
+    ) -> dict:
+        """What potentially notable BGP events are happening across the internet
+        right now? Returns a scored feed of one network announcing address space
+        that another network normally originates — the shape of a hijack or a
+        route leak. Events are ranked so the ones worth a human's attention float
+        up: a more prominent victim network, more corroborating detectors, and
+        more affected prefixes raise the score, while likely leaks (the two
+        networks are related) and shared/leased address space are pushed down.
+
+        These are LEADS, not verdicts. Relationship inference is imperfect, so an
+        event can be flagged when the two parties are actually the same operator.
+        Investigate before describing anything as a confirmed hijack — `identify`
+        the two ASNs and pull the affected prefix's history. `hours` is the
+        lookback (≤168), `limit` the number of events (≤100)."""
+        data = client.notable_events(window_hours=hours, limit=limit)
+        events = data.get("events") or []
+        shaped = []
+        for e in events:
+            sp = e.get("sample_prefix")
+            shaped.append(
+                {
+                    "announcing_as": e.get("actor_as"),
+                    "usual_origin_as": e.get("victim_as"),
+                    "prefix_count": e.get("prefix_count"),
+                    "sample_prefix": (
+                        f"{sp}/{e.get('sample_prefix_len')}" if sp else None
+                    ),
+                    "signals": e.get("detection_types") or [],
+                    "victim_traffic": e.get("victim_traffic") or None,
+                    "possible_leak": bool(e.get("likely_leak")),
+                    "severity": e.get("severity"),
+                    "score": round(e.get("score") or 0.0, 1),
+                    "first_seen": e.get("first_seen"),
+                    "last_seen": e.get("last_seen"),
+                    "family": "ipv4" if e.get("is_v4") else "ipv6",
+                }
+            )
+        warnings = [
+            warning(
+                "leads_not_verdicts",
+                "Scored leads, not confirmed hijacks. `possible_leak` marks pairs "
+                "our inferred relationships tie together; low-scoring events near "
+                "the tail are often benign or misconfigurations.",
+            )
+        ]
+        return {
+            "window_hours": data.get("window_hours", hours),
+            "count": len(shaped),
+            "events": shaped,
+            "warnings": warnings,
+            "meta": meta("composed"),
         }

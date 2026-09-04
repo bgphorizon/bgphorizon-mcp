@@ -1,9 +1,10 @@
 # MCP Tool Schemas
 
-Eighteen tools across two personas:
+Twenty-two tools across three personas:
 
-- **Investigation** (15) — analysing a network you do not run
+- **Investigation** (17) — analysing a network you do not run
 - **Operator** (3) — watching one you do
+- **Alerts** (2) — reading your own monitoring, for reports
 
 Each maps to an analytical operation, not an endpoint.
 
@@ -211,10 +212,12 @@ Transit structure with prepending resolved.
 
 ## `relationships`
 
-An ASN's transit hierarchy over a date window: **upstreams** (its providers) and
-**downstreams** (its customers), plus observed neighbours of unknown type. Inferred
-provider→customer, Tier-1-anchored (~94% agreement with CAIDA). Peering is **not**
-inferred — `other_connections` are observed adjacencies, not confirmed peers.
+An ASN's inferred transit hierarchy over a window: **upstreams** (its providers) and
+**downstreams** (its customers), plus **other_connections** — observed adjacencies whose
+type is unknown. Provider→customer is inferred Tier-1-anchored (~94% agreement with CAIDA);
+peering is **not** inferred, so `other_connections` are never presented as confirmed peers.
+Each row carries `confidence`, `vantage_count` (distinct collector+peer feeds), and
+`days_present`. Results reflect the window — relationships change over time.
 
 ```jsonc
 { "name": "relationships",
@@ -223,12 +226,11 @@ inferred — `other_connections` are observed adjacencies, not confirmed peers.
 ```
 
 ```jsonc
-{ "asn": 15169,
-  "window": { "from": "2026-07-19", "to": "2026-08-17" },
-  "upstreams":   [{ "asn": 6453, "name": "TATA", "confidence": 0.98, "vantage_count": 310, "days_present": 30 }],
-  "downstreams": [{ "asn": 396982, "name": "Google Cloud", "confidence": 0.9, "vantage_count": 42, "days_present": 30 }],
-  "other_connections": [{ "asn": 13335, "name": "Cloudflare", "vantage_count": 180, "days_present": 30 }],
-  "counts": { "upstreams": 6, "downstreams": 22, "other_connections": 410, "neighbors": 438 },
+{ "asn": 15169, "window": { "from": "2026-07-22", "to": "2026-08-21" },
+  "upstreams": [{ "asn": 174, "name": "Cogent", "confidence": 0.98, "vantage_count": 220, "days_present": 30 }],
+  "downstreams": [{ "asn": 396982, "name": "Google Cloud", "confidence": 0.98, "vantage_count": 180, "days_present": 30 }],
+  "other_connections": [{ "asn": 3356, "name": "Level 3", "vantage_count": 140, "days_present": 30 }],
+  "counts": { "upstreams": 6, "downstreams": 22, "other_connections": 394, "neighbors": 422 },
   "warnings": [{ "code": "peering_not_inferred",
                  "message": "other_connections are observed adjacencies of unknown type, not confirmed peers." }] }
 ```
@@ -273,27 +275,29 @@ Default window 14 days.
 
 Decode raw BGP community strings into meaning, from a dictionary harvested from operators'
 own IRR objects + NLNOG (ISC) + the IANA/RFC well-knowns. `known:false` = no published
-definition (don't guess); the owner AS (left side) is still named. `inferred:true` marks a
-near-universal convention (e.g. any `:666`/`:9999` = blackhole), not something the owner
-published. `matched_by` is the wildcard pattern that matched, if any.
+definition (don't guess); the owner AS (left side) is still named, which is useful on its own.
+`inferred:true` marks a near-universal convention (e.g. any `:666`/`:9999` = blackhole), not
+something the owner published. `matched_by` is the wildcard pattern that matched, if any.
 
 ```jsonc
 { "name": "translate_communities",
   "inputSchema": { "type": "object", "required": ["communities"], "properties": {
     "communities": { "type": "array", "items": { "type": "string" },
-                     "description": "e.g. [\"3356:2065\", \"30844:666\"]" } } } }
+                     "description": "e.g. [\"3356:2065\", \"1299:2731\", \"30844:666\"]" } } } }
 ```
 
 ```jsonc
 { "results": [
     { "community": "3356:2065", "known": true, "owner_asn": 3356, "owner_name": "Lumen",
-      "category": "informational", "subtype": "geo", "description": "FRF1 - Frankfurt", "geo": "Frankfurt", "source": "nlnog" },
+      "category": "informational", "subtype": "geo", "description": "FRF1 - Frankfurt",
+      "geo": "Frankfurt", "source": "nlnog" },
     { "community": "30844:666", "known": true, "owner_asn": 30844, "owner_name": "Liquid Telecom",
-      "category": "action", "subtype": "blackhole", "inferred": true, "source": "convention",
-      "description": "Blackhole (RTBH) — inferred from the common :666 convention…" },
+      "category": "action", "subtype": "blackhole",
+      "description": "Blackhole (RTBH) — discard traffic to this prefix. Inferred from the common :666 convention…",
+      "inferred": true, "source": "convention" },
     { "community": "64500:12", "known": false, "owner_asn": 64500, "owner_name": null } ],
   "warnings": [{ "code": "unknown_communities_not_guessed",
-                 "message": "known=false communities have no published definition; the owner AS is still named." }] }
+                 "message": "Communities with known=false have no published definition; the owner AS is still named." }] }
 ```
 
 ---
@@ -395,7 +399,7 @@ apparent spike was the platform's ordinary volume.
 
 For networks you own or operate. These answer "is my stuff correct and healthy?"
 rather than "what is that network doing?". Backed by the same API; see
-[`https://bgphorizon.com/docs/mcp`](https://bgphorizon.com/docs/mcp) for the underlying
+[`../api/OPERATOR-WORKFLOWS.md`](../api/OPERATOR-WORKFLOWS.md) for the underlying
 endpoint sequences.
 
 ---
@@ -503,6 +507,55 @@ Where can the internet see this prefix, and where can it not?
 `compare_to` is the useful part. Absolute peer counts mean little; a prefix seen
 by 40 peers when its siblings are seen by 330 is being filtered, and that ratio is
 what surfaces it.
+
+---
+
+## `my_alerts`
+
+Alerts your own monitors fired over a window — the input to an incident report or a
+daily/weekly summary. Returns the alerts plus totals by detection type, severity and
+monitor, so one call is enough to draft from. Scoped to your account (and anything your
+organization shares with you); it is not a platform-wide search.
+
+```jsonc
+{ "name": "my_alerts",
+  "inputSchema": { "type": "object", "properties": {
+    "window":            { "type": "string", "default": "today",
+                           "description": "\"today\", a relative span (24h/7d/30d), or a date" },
+    "start":             { "type": "string", "description": "Explicit window start; overrides window" },
+    "end":               { "type": "string", "description": "Explicit window end" },
+    "detection_type":    { "type": "string" },
+    "severity":          { "type": "string", "enum": ["info","low","medium","high","critical"] },
+    "monitor_id":        { "type": "string", "format": "uuid" },
+    "include_dismissed": { "type": "boolean", "default": true },
+    "limit":             { "type": "integer", "default": 200, "maximum": 1000 } } } }
+```
+
+Warnings: `no_alerts_in_window`, `truncated`, `mostly_informational`,
+`single_monitor_dominates`.
+
+---
+
+## `my_monitors`
+
+Your watchlist with each monitor's alert volume over a window — what you cover, and
+which watches are noisy.
+
+```jsonc
+{ "name": "my_monitors",
+  "inputSchema": { "type": "object", "properties": {
+    "window":         { "type": "string", "default": "7d" },
+    "start":          { "type": "string" },
+    "end":            { "type": "string" },
+    "scope":          { "type": "string", "enum": ["mine","org"], "default": "mine" },
+    "resource":       { "type": "string", "enum": ["prefix","asn"] },
+    "status":         { "type": "string", "enum": ["enabled","paused"] },
+    "detection_type": { "type": "string" },
+    "q":              { "type": "string" },
+    "limit":          { "type": "integer", "default": 500, "maximum": 2000 } } } }
+```
+
+Warnings: `paused_monitors`, `no_activity`, `all_types_subscribed`.
 
 ---
 

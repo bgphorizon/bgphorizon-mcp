@@ -4,7 +4,7 @@ An [MCP](https://modelcontextprotocol.io) server that exposes **BGPHorizon** —
 global BGP routing intelligence — to any MCP-capable LLM client (Claude Code,
 Claude Desktop, Cursor, Gemini CLI, OpenAI Agents, …).
 
-It is not a thin wrapper over the REST API. The surface is **18 task-shaped
+It is not a thin wrapper over the REST API. The surface is **22 task-shaped
 tools** built around the operations investigators and operators actually perform,
 each returning aggregates plus `warnings[]` so a model cannot silently misread the
 data (persistence, single-vantage-point concentration, censored `first_seen`, …).
@@ -23,7 +23,7 @@ panel), passed as `BGPHORIZON_API_KEY`.
 
 ```bash
 export BGPHORIZON_API_KEY=bgps_xxx
-uvx bgphorizon-mcp --selftest      # ✓ API reachable ✓ key valid ✓ 18 tools ✓ 8 resources ✓ 7 prompts
+uvx bgphorizon-mcp --selftest      # ✓ API reachable ✓ key valid ✓ 22 tools ✓ 8 resources ✓ 8 prompts
 ```
 
 `uvx bgphorizon-mcp` fetches and runs on demand — nothing to install first. Or
@@ -96,12 +96,18 @@ OpenAI Agents SDK, LangChain, n8n, VS Code) and reverse-proxy config.
 
 ## What's in the box
 
-**Investigation tools (15):** `identify`, `inventory`, `timeline`,
-`origin_history`, `reachability`, `detections`, `paths`, `relationships`,
+**Investigation tools (17):** `identify`, `inventory`, `timeline`,
+`origin_history`, `reachability`, `global_reach`, `detections`, `paths`, `relationships`,
 `path_diversity`, `translate_communities`, `compare_windows`, `locate`, `subprefixes`, `events_sample`,
-`platform_baseline`.
+`platform_baseline`, `notable_events`.
 
 **Operator tools (3):** `health_check`, `validate_announcement`, `visibility`.
+
+**Alert tools (2):** `my_alerts`, `my_monitors` — your own monitoring rather than the
+global table. `my_alerts(window="today")` returns every alert your monitors fired over a
+window, with totals by detection type, severity and monitor, ready to write up.
+`my_monitors` lists your watchlist with each monitor's alert volume for the same window,
+so coverage and noise come back in one call.
 
 **Resources (8):** `bgphorizon://reference/{detection-types, collectors, glossary,
 data-horizon, report-template, writing-guide, qa-checklist, methodology}` — reference
