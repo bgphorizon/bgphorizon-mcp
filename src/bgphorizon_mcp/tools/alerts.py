@@ -174,6 +174,12 @@ def register_alert_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
         ("these 266 prefixes were under watch"), to find monitors worth tuning,
         or to spot coverage gaps before an audit.
 
+        Each monitor lists `min_severity` per detection type where one is set. Only New
+        Origin (`origin_mismatch_new`) has alerts at more than one severity: high when
+        another network's space is involved, medium when an origin returns after 30+
+        days, info when a network announces a new more-specific inside a block it
+        already announces. A type absent from `min_severity` gets every alert.
+
         Pair with `my_alerts` for the alerts themselves."""
         params = _window_params(window, start, end)
         params.update(
@@ -225,7 +231,8 @@ def register_alert_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
                     "Nearly every monitor subscribes to every detection type. If volume is the "
                     "complaint, the fix is removing the informational types "
                     f"({', '.join(sorted(_INFORMATIONAL))}) in bulk from the Monitors page, "
-                    "not narrowing the window.",
+                    "or setting New Origin to 'High only' to drop a network's own new "
+                    "more-specifics, not narrowing the window.",
                 )
             )
 
