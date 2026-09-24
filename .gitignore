@@ -6,3 +6,11 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
+
+# Customer/report artefacts — this repo is PUBLIC. Generated reports and the
+# routing data behind them are never part of the package; keep them local.
+# (Patterns are narrow on purpose: reporting/TEMPLATE.html and
+# src/bgphorizon_mcp/reference/report_template.html are legitimately tracked.)
+*-routing-report.html
+*.xlsx
+*.bgp.txt

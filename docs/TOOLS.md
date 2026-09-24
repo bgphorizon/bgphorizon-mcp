@@ -2,9 +2,9 @@
 
 Twenty-two tools across three personas:
 
-- **Investigation** (17) — analysing a network you do not run
-- **Operator** (3) — watching one you do
-- **Alerts** (2) — reading your own monitoring, for reports
+- **Investigation** (17): analyzing a network you do not run
+- **Operator** (3): watching one you do
+- **Alerts** (2): reading your own monitoring, for reports
 
 Each maps to an analytical operation, not an endpoint.
 
@@ -12,7 +12,7 @@ Common conventions:
 - Dates are `YYYY-MM-DD`; datetimes are RFC3339 UTC.
 - Every response includes `warnings[]` (may be empty) and `meta` with
   `source` (`rollup` | `raw_events` | `registry`) and `computed_at`.
-- Prefixes are plain CIDR — the server handles encoding.
+- Prefixes are plain CIDR. The server handles encoding.
 
 ---
 
@@ -43,7 +43,7 @@ Who is this? Registry, RPKI, IRR and PeeringDB in one call.
                  "message": "IRR object names AS5693, which was not observed announcing this prefix." }] }
 ```
 
-Set `include: ["whois"]` for RIPE/ARIN whois fields absent from RDAP —
+Set `include: ["whois"]` for RIPE/ARIN whois fields absent from RDAP;
 `org-type`, `address`, `phone`, `mnt-routes`, POC validation status. Those fields
 identified a shell entity in one report.
 
@@ -182,7 +182,7 @@ Platform findings, with direction made explicit.
 `queried_entity_is_invalid_party` | `queried_entity_is_baseline` | `third_party`.
 
 Reading `actor_as` against `baseline_asns` incorrectly inverts a report's
-conclusion — a court appeared to be a hijack victim when its own announcements
+conclusion: a court appeared to be a hijack victim when its own announcements
 were the invalid ones.
 
 ---
@@ -213,11 +213,11 @@ Transit structure with prepending resolved.
 ## `relationships`
 
 An ASN's inferred transit hierarchy over a window: **upstreams** (its providers) and
-**downstreams** (its customers), plus **other_connections** — observed adjacencies whose
+**downstreams** (its customers), plus **other_connections**, observed adjacencies whose
 type is unknown. Provider→customer is inferred Tier-1-anchored (~94% agreement with CAIDA);
 peering is **not** inferred, so `other_connections` are never presented as confirmed peers.
 Each row carries `confidence`, `vantage_count` (distinct collector+peer feeds), and
-`days_present`. Results reflect the window — relationships change over time.
+`days_present`. Results reflect the window; relationships change over time.
 
 ```jsonc
 { "name": "relationships",
@@ -239,13 +239,13 @@ Each row carries `confidence`, `vantage_count` (distinct collector+peer feeds), 
 
 ## `path_diversity`
 
-How an origin's announcements **fan out through its upstreams toward our collectors** — the
+How an origin's announcements **fan out through its upstreams toward our collectors**: the
 observed propagation tree, weighted by how many vantage points take each branch. Built only
 from real AS paths (no inference). Each level-1 `share` is the fraction of vantage points
 (that see the origin at all) whose path leaves via that upstream: a single branch near `1.0`
 = effectively single-threaded through that provider; balanced branches = redundant transit.
 `is_tier1` marks where a branch reaches the Tier-1 core. Pass `prefix` (a CIDR the ASN
-originates) to scope the tree — and the %s — to one route (e.g. a MOAS prefix). This is the
+originates) to scope the tree, and the percentages, to one route (e.g. a MOAS prefix). This is the
 control-plane route spread, **not a traceroute**: peering and IXP handoffs are invisible to
 collectors. `diverse=false` (read `reason`) means single-threaded or too thinly observed.
 Default window 14 days.
@@ -293,7 +293,7 @@ something the owner published. `matched_by` is the wildcard pattern that matched
       "geo": "Frankfurt", "source": "nlnog" },
     { "community": "30844:666", "known": true, "owner_asn": 30844, "owner_name": "Liquid Telecom",
       "category": "action", "subtype": "blackhole",
-      "description": "Blackhole (RTBH) — discard traffic to this prefix. Inferred from the common :666 convention…",
+      "description": "Blackhole (RTBH): discard traffic to this prefix. Inferred from the common :666 convention…",
       "inferred": true, "source": "convention" },
     { "community": "64500:12", "known": false, "owner_asn": 64500, "owner_name": null } ],
   "warnings": [{ "code": "unknown_communities_not_guessed",
@@ -319,7 +319,7 @@ Baseline versus event.
 
 ## `locate`
 
-Facility intersection across upstreams — routing-only geolocation.
+Facility intersection across upstreams: routing-only geolocation.
 
 ```jsonc
 { "name": "locate",
@@ -338,7 +338,7 @@ Facility intersection across upstreams — routing-only geolocation.
   "assessment": { "most_probable": "Frankfurt, DE", "confidence": "moderate",
                   "basis": "only city common to all three upstreams" },
   "warnings": [{ "code": "geoip_disagreement",
-                 "message": "Geolocation sources disagree across three countries — characteristic of leased space with no stable anchor. Prefer routing evidence." }] }
+                 "message": "Geolocation sources disagree across three countries, which is characteristic of leased space with no stable anchor. Prefer routing evidence." }] }
 ```
 
 ---
@@ -351,7 +351,7 @@ Facility intersection across upstreams — routing-only geolocation.
     "prefix": { "type": "string" }, "from": { "type": "string" }, "to": { "type": "string" } } } }
 ```
 
-Returns announced more-specifics plus `unrouted_addresses` — allocated space never
+Returns announced more-specifics plus `unrouted_addresses`: allocated space never
 seen in the table, which is the easiest kind to announce unnoticed.
 
 ---
@@ -389,7 +389,7 @@ Is this unusual, platform-wide?
 ```
 
 Call this **before** describing anything as anomalous. One investigation was
-correctly abandoned when platform trends showed the day was entirely normal — the
+correctly abandoned when platform trends showed the day was entirely normal; the
 apparent spike was the platform's ordinary volume.
 
 ---
@@ -399,7 +399,7 @@ apparent spike was the platform's ordinary volume.
 
 For networks you own or operate. These answer "is my stuff correct and healthy?"
 rather than "what is that network doing?". Backed by the same API; see
-[`../api/OPERATOR-WORKFLOWS.md`](../api/OPERATOR-WORKFLOWS.md) for the underlying
+the operator workflows in the BGPHorizon API docs for the underlying
 endpoint sequences.
 
 ---
@@ -407,7 +407,7 @@ endpoint sequences.
 ## `health_check`
 
 Full hygiene and exposure audit for an ASN you control. The single most valuable
-operator call — it is workflows §1–§4 in one.
+operator call. It is workflows §1–§4 in one.
 
 ```jsonc
 { "name": "health_check",
@@ -425,7 +425,7 @@ operator call — it is workflows §1–§4 in one.
     { "check": "rpki", "severity": "high", "affected": ["144.166.53.0/24", "…"],
       "count": 7,
       "detail": "No ROA on any announced prefix. Announcements cannot be validated or rejected.",
-      "remediation": "Create ROAs authorising AS21799 with max_length equal to the announced length." },
+      "remediation": "Create ROAs authorizing AS21799 with max_length equal to the announced length." },
     { "check": "unrouted", "severity": "high", "affected": ["144.166.0.0/16"],
       "detail": "63,744 of 65,536 allocated addresses are never announced.",
       "remediation": "Publish a covering ROA permitting only the intended more-specifics." },
@@ -441,7 +441,7 @@ operator call — it is workflows §1–§4 in one.
 Every finding carries `remediation` in operator terms. A model relaying this to a
 network engineer should be able to hand over an action list, not a data dump.
 
-`maxlength` deserves emphasis: a ROA on a `/24` with `max_length: 32` authorises
+`maxlength` deserves emphasis: a ROA on a `/24` with `max_length: 32` authorizes
 any more-specific under that origin, which is a hijack surface rather than
 protection.
 
@@ -470,13 +470,13 @@ prefix.
               "recently_transferred": true },
   "verdict": "blocked",
   "blockers": [
-    "An existing ROA authorises AS64501; announcing from AS64500 will be RPKI-invalid.",
-    "Space changed registered holder 40 days ago — the previous holder's ROA is still published."
+    "An existing ROA authorizes AS64501; announcing from AS64500 will be RPKI-invalid.",
+    "Space changed registered holder 40 days ago. The previous holder's ROA is still published."
   ] }
 ```
 
 `verdict` is `clear` | `warn` | `blocked`. The `recently_transferred` flag exists
-because of the ten-month invalid tail observed in the AS54994 report — freshly
+because of the ten-month invalid tail observed in the AS54994 report: freshly
 transferred space routinely still carries the old holder's ROAs.
 
 ---
@@ -512,7 +512,7 @@ what surfaces it.
 
 ## `my_alerts`
 
-Alerts your own monitors fired over a window — the input to an incident report or a
+Alerts your own monitors fired over a window: the input to an incident report or a
 daily/weekly summary. Returns the alerts plus totals by detection type, severity and
 monitor, so one call is enough to draft from. Scoped to your account (and anything your
 organization shares with you); it is not a platform-wide search.
@@ -538,7 +538,7 @@ Warnings: `no_alerts_in_window`, `truncated`, `mostly_informational`,
 
 ## `my_monitors`
 
-Your watchlist with each monitor's alert volume over a window — what you cover, and
+Your watchlist with each monitor's alert volume over a window: what you cover, and
 which watches are noisy.
 
 ```jsonc
@@ -563,7 +563,7 @@ Warnings: `paused_monitors`, `no_activity`, `all_types_subscribed`.
 
 | Prompt | Produces |
 |---|---|
-| `audit_my_network` | Hygiene report for your ASN with a prioritised remediation list |
+| `audit_my_network` | Hygiene report for your ASN with a prioritized remediation list |
 | `preflight_change` | Go/no-go assessment for an announcement or renumbering |
 | `explain_incident` | Plain-language incident summary for a non-network stakeholder |
 

@@ -1,7 +1,7 @@
-"""Alert tools (2) — the caller's own monitoring, shaped for report writing.
+"""Alert tools (2): the caller's own monitoring, shaped for report writing.
 
 Everything else in this server investigates the global routing table. These two
-answer "what did *my* watchlist catch, and over what period" — the raw material
+answer "what did *my* watchlist catch, and over what period": the raw material
 for an incident write-up or a weekly summary.
 
 Both take a window rather than making the model compute dates: `window="today"`
@@ -32,7 +32,7 @@ def _window_params(window: str, start: str | None, end: str | None) -> dict:
     """Explicit start/end wins; otherwise the shorthand goes to the API as-is.
 
     The API understands dates, RFC3339, relative windows (24h/7d) and "today", so
-    shorthand is passed through rather than resolved here — one parser, server-side.
+    shorthand is passed through rather than resolved here; one parser, server-side.
 
     The tool parameters are `start`/`end` rather than `from`/`to` because `from` is
     a Python keyword: FastMCP would publish it in the schema and then fail to bind
@@ -56,11 +56,19 @@ def register_alert_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
         end: Annotated[Optional[str], Field(description="Explicit window end (YYYY-MM-DD or RFC3339).")] = None,
         detection_type: Annotated[Optional[str], Field(description="Restrict to one detection type, e.g. rpki_invalid_asn.")] = None,
         severity: Annotated[Optional[str], Field(description="Restrict to one severity: info, low, medium, high, critical.")] = None,
+        prefix_status: Annotated[
+            Optional[str],
+            Field(
+                description="Restrict to one prefix novelty label the detector stamped at incident open: "
+                "established, new, new_more_specific, returned. `new_more_specific` is the sub-prefix "
+                "hijack shape (a more-specific of known space from a new origin) and is the one to pull first."
+            ),
+        ] = None,
         monitor_id: Annotated[Optional[str], Field(description="Restrict to a single monitor.")] = None,
         include_dismissed: Annotated[bool, Field(description="Include alerts already dismissed from the feed. True for a complete record of what fired.")] = True,
         limit: Annotated[int, Field(description="Maximum alerts to return (max 1000).", ge=1, le=1000)] = 200,
     ) -> dict:
-        """Alerts YOUR monitors fired over a window — the input to an incident
+        """Alerts YOUR monitors fired over a window: the input to an incident
         report or a daily/weekly summary. Returns the alerts themselves plus
         breakdowns by detection type, severity and monitor, so a write-up can
         lead with totals and drill into specifics without a second call.
@@ -73,6 +81,7 @@ def register_alert_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
             {
                 "detection_type": detection_type,
                 "severity": severity,
+                "prefix_status": prefix_status,
                 "monitor_id": monitor_id,
                 "include_dismissed": "true" if include_dismissed else None,
                 "limit": limit,
@@ -91,7 +100,7 @@ def register_alert_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
             warnings.append(
                 warning(
                     "no_alerts_in_window",
-                    "No alerts fired in this window. That is a finding in itself — say so "
+                    "No alerts fired in this window. That is a finding in itself. Say so "
                     "plainly rather than widening the window to manufacture material.",
                 )
             )
@@ -136,8 +145,8 @@ def register_alert_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
                 "alerts": total,
                 "returned": len(alerts),
                 "by_detection_type": by_type,
-                "by_severity": summary.get("by_severity", []),
-                "by_monitor": summary.get("by_monitor", []),
+                "by_severity": summary.get("by_severity") or [],
+                "by_monitor": summary.get("by_monitor") or [],
             },
             "alerts": alerts,
             "warnings": warnings,
@@ -160,7 +169,7 @@ def register_alert_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
         q: Annotated[Optional[str], Field(description="Substring of the monitor name, prefix or ASN.")] = None,
         limit: Annotated[int, Field(description="Maximum monitors to return (max 2000).", ge=1, le=2000)] = 500,
     ) -> dict:
-        """YOUR watchlist, with each monitor's alert volume over a window — what
+        """YOUR watchlist, with each monitor's alert volume over a window: what
         you're covering and which watches are noisy. Use it to scope a report
         ("these 266 prefixes were under watch"), to find monitors worth tuning,
         or to spot coverage gaps before an audit.
@@ -202,7 +211,7 @@ def register_alert_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
             warnings.append(
                 warning(
                     "no_activity",
-                    "No monitor fired in this window. Coverage is not the same as activity — "
+                    "No monitor fired in this window. Coverage is not the same as activity. "
                     "state that nothing fired rather than implying nothing was watched.",
                 )
             )

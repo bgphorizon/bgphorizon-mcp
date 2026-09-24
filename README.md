@@ -1,11 +1,11 @@
 # bgphorizon-mcp
 
-An [MCP](https://modelcontextprotocol.io) server that exposes **BGPHorizon** —
-global BGP routing intelligence — to any MCP-capable LLM client (Claude Code,
+An [MCP](https://modelcontextprotocol.io) server that exposes **BGPHorizon**
+BGP routing data to any MCP-capable LLM client (Claude Code,
 Claude Desktop, Cursor, Gemini CLI, OpenAI Agents, …).
 
 It is not a thin wrapper over the REST API. The surface is **22 task-shaped
-tools** built around the operations investigators and operators actually perform,
+tools** built around the operations investigators and operators perform,
 each returning aggregates plus `warnings[]` so a model cannot silently misread the
 data (persistence, single-vantage-point concentration, censored `first_seen`, …).
 
@@ -19,24 +19,22 @@ LLM client ──stdio│http──► bgphorizon-mcp ──► BGPHorizon /api/
 The server needs a BGPHorizon API key (create one in your account's **API**
 panel), passed as `BGPHORIZON_API_KEY`.
 
-**Zero-install with [uv](https://docs.astral.sh/uv/):**
+**From source, with [uv](https://docs.astral.sh/uv/):**
 
 ```bash
-export BGPHORIZON_API_KEY=bgps_xxx
-uvx bgphorizon-mcp --selftest      # ✓ API reachable ✓ key valid ✓ 22 tools ✓ 8 resources ✓ 8 prompts
-```
-
-`uvx bgphorizon-mcp` fetches and runs on demand — nothing to install first. Or
-install it as a tool (`uv tool install bgphorizon-mcp`) / with pipx
-(`pipx install bgphorizon-mcp`).
-
-**From source:**
-
-```bash
-git clone <this-repo> && cd bgphorizon-mcp
+git clone https://github.com/bgphorizon/bgphorizon-mcp.git && cd bgphorizon-mcp
 uv sync
-uv run bgphorizon-mcp --selftest
+export BGPHORIZON_API_KEY=bgps_xxx
+uv run bgphorizon-mcp --selftest   # ✓ API reachable ✓ key valid ✓ 22 tools ✓ 9 resources ✓ 8 prompts
 ```
+
+The selftest prints a line per check, so a wrong key or an unreachable API shows
+up before you wire the server into a client.
+
+**Not on PyPI yet.** Once it is released there, `uvx bgphorizon-mcp` will run it
+with nothing to install, and `uv tool install bgphorizon-mcp` or
+`pipx install bgphorizon-mcp` will install it. Until then use the source install
+above, or the hosted endpoint, which needs no install at all.
 
 ## Connect it
 
@@ -65,7 +63,8 @@ claude mcp add --transport http bgphorizon https://bgphorizon.com/mcp \
 ### Self-hosted with Claude Code
 
 ```bash
-claude mcp add bgphorizon --env BGPHORIZON_API_KEY=bgps_xxx -- uvx bgphorizon-mcp
+claude mcp add bgphorizon --env BGPHORIZON_API_KEY=bgps_xxx \\
+  -- uv run --directory /path/to/bgphorizon-mcp bgphorizon-mcp
 ```
 
 ### Claude Desktop / Cursor / Zed (`mcpServers` block)
@@ -91,7 +90,7 @@ bgphorizon-mcp --transport http --port 8931 --require-auth
 ```
 
 Put it behind TLS with `proxy_buffering off` for streaming. See
-[`../docs/mcp/SETUP.md`](../docs/mcp/SETUP.md) for every client (Gemini CLI,
+[`docs/SETUP.md`](docs/SETUP.md) for every client (Gemini CLI,
 OpenAI Agents SDK, LangChain, n8n, VS Code) and reverse-proxy config.
 
 ## What's in the box
@@ -103,41 +102,49 @@ OpenAI Agents SDK, LangChain, n8n, VS Code) and reverse-proxy config.
 
 **Operator tools (3):** `health_check`, `validate_announcement`, `visibility`.
 
-**Alert tools (2):** `my_alerts`, `my_monitors` — your own monitoring rather than the
+**Alert tools (2):** `my_alerts`, `my_monitors`. Your own monitoring rather than the
 global table. `my_alerts(window="today")` returns every alert your monitors fired over a
 window, with totals by detection type, severity and monitor, ready to write up.
 `my_monitors` lists your watchlist with each monitor's alert volume for the same window,
 so coverage and noise come back in one call.
 
-**Resources (8):** `bgphorizon://reference/{detection-types, collectors, glossary,
-data-horizon, report-template, writing-guide, qa-checklist, methodology}` — reference
-the model can pull without a tool call. `report-template` ships with the house CSS
-already inlined, and the report standards are all here, so a hosted (no-clone) client
-still writes house-style reports.
+**Resources (9):** `bgphorizon://reference/{detection-types, collectors, glossary,
+data-horizon, report-template, writing-guide, qa-checklist, methodology,
+report-examples}`: reference the model can pull without a tool call.
+`report-template` ships with the house CSS already inlined, and the full report
+standards are here, so a hosted client that never clones the repo still writes
+house-style reports. Only the local enforcement scripts (`style-lint.py`,
+`build-report.sh`) need the repo, and they check work the standards already
+describe.
 
-**Prompts (7):** `investigate_entity`, `write_report`, `triage_incident`,
-`locate_infrastructure`, `audit_my_network`, `preflight_change`,
-`explain_incident` — where the house methodology lives. In Claude Code they surface
-as `/bgphorizon:audit_my_network`, etc.
+**Prompts (8):** `investigate_entity`, `write_report`, `alert_report`,
+`triage_incident`, `locate_infrastructure`, `audit_my_network`,
+`preflight_change`, `explain_incident`. The methodology lives here. In Claude
+Code they surface as `/bgphorizon:audit_my_network`, etc. `write_report` asks
+first whether you want to review its findings before it writes them up.
 
-Full tool contracts: [`../docs/mcp/TOOLS.md`](../docs/mcp/TOOLS.md).
-Design rationale: [`../docs/mcp/SERVER-DESIGN.md`](../docs/mcp/SERVER-DESIGN.md).
+Full tool contracts, with a worked example per tool: [`docs/TOOLS.md`](docs/TOOLS.md).
 
 ## Writing investigative reports
 
 The server ships a complete **report kit** and a `write_report` prompt so you can
-generate defensible, house-style BGP routing reports from **any** client — Claude
+generate BGP routing reports from any client: Claude
 Code, Claude Desktop, OpenAI (Codex / Agents / ChatGPT), Gemini CLI, Cursor, and more.
 
-It's three steps: connect the server → set your agent's system prompt to
-[`reporting/SYSTEM-PROMPT.md`](reporting/SYSTEM-PROMPT.md) → ask for the report. The
-per-client, copy-paste guide is in **[`reporting/README.md`](reporting/README.md)**.
+Connect the server, then ask for a report. The `write_report` prompt carries the
+whole procedure: it reads the standards, runs the investigation, asks whether you
+want to review the findings before it writes, and fills the template. Nothing has
+to be cloned for that. Cloning adds `build-report.sh`, which validates the HTML,
+fails on a style violation, and renders a PDF and PNG.
+
+The per-client, copy-paste guide is in
+**[`reporting/README.md`](reporting/README.md)**.
 
 ## Configuration
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `BGPHORIZON_API_KEY` | — | API key, forwarded as `Authorization: Bearer`. |
+| `BGPHORIZON_API_KEY` | (none) | API key, forwarded as `Authorization: Bearer`. |
 | `BGPHORIZON_API_URL` | `https://bgphorizon.com` | BGPHorizon base URL. |
 | `BGPHORIZON_TIMEOUT` | `30` | Per-request timeout (seconds). |
 | `BGPHORIZON_LOG_LEVEL` | `INFO` | DEBUG surfaces every upstream request. |

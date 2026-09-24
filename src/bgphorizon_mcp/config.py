@@ -3,11 +3,11 @@
 Everything is driven by environment variables so the server drops cleanly into
 any MCP client's ``env`` block:
 
-- ``BGPHORIZON_API_KEY``  — required; forwarded as ``Authorization: Bearer`` to
+- ``BGPHORIZON_API_KEY``: required; forwarded as ``Authorization: Bearer`` to
   the public ``/api/v1`` gateway (inherits metering + tier entitlements).
-- ``BGPHORIZON_API_URL``  — base URL of the BGPHorizon site (default production).
-- ``BGPHORIZON_LOG_LEVEL`` — DEBUG | INFO | WARNING | ERROR (default INFO).
-- ``BGPHORIZON_TIMEOUT``  — per-request timeout in seconds (default 30).
+- ``BGPHORIZON_API_URL``: base URL of the BGPHorizon site (default production).
+- ``BGPHORIZON_LOG_LEVEL``: DEBUG | INFO | WARNING | ERROR (default INFO).
+- ``BGPHORIZON_TIMEOUT``: per-request timeout in seconds (default 30).
 """
 
 from __future__ import annotations

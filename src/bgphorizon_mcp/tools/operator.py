@@ -1,4 +1,4 @@
-"""Operator tools (3) — watching a network you own.
+"""Operator tools (3): watching a network you own.
 
 These answer "is my stuff correct and healthy?" and every finding carries
 `remediation` in operator terms, so a model can hand an engineer an action list
@@ -35,7 +35,7 @@ def register_operator_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
         window: str = "30d",
         checks: Optional[list[str]] = None,
     ) -> dict:
-        """Full hygiene + exposure audit for an ASN you control — the single most
+        """Full hygiene and exposure audit for an ASN you control. The most
         valuable operator call. Checks RPKI/IRR coverage, MOAS, ROA max-length
         exposure, transit diversity and visibility, each with remediation. Sampling
         bounds the per-prefix checks to keep it fast."""
@@ -89,9 +89,9 @@ def register_operator_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
                         "affected": missing[:20],
                         "count": len(missing),
                         "detail": f"{len(missing)} of {total} announced prefixes are not covered "
-                        "by any ROA authorising this ASN — those announcements cannot be validated "
+                        "by any ROA authorizing this ASN. Those announcements cannot be validated "
                         "by origin validation.",
-                        "remediation": f"Create ROAs authorising AS{asn} (max_length equal to each "
+                        "remediation": f"Create ROAs authorizing AS{asn} (max_length equal to each "
                         "announced length) for the uncovered prefixes.",
                     }
                 )
@@ -105,7 +105,7 @@ def register_operator_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
                 cidr = r.get("cidr") or ""
                 host = 32 if ":" not in cidr else 128
                 # Only flag max_length opened all the way to the host length on a
-                # shorter ROA — that authorises any more-specific and is a genuine
+                # shorter ROA; that authorizes any more-specific and is a genuine
                 # hijack surface. Ordinary max_length that covers real more-specifics
                 # is normal and not flagged.
                 if plen is not None and ml == host and plen < host:
@@ -118,9 +118,9 @@ def register_operator_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
                         "affected": [x["cidr"] for x in loose[:20]],
                         "count": len(loose),
                         "detail": "ROAs whose max_length reaches the host length (/32 or /128) "
-                        "authorise any more-specific under this origin — a hijack surface rather "
+                        "authorize any more-specific under this origin, a hijack surface rather "
                         "than protection.",
-                        "remediation": "Set max_length to the longest prefix you actually "
+                        "remediation": "Set max_length to the longest prefix you "
                         "originate, not the host length.",
                     }
                 )
@@ -164,7 +164,7 @@ def register_operator_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
                     "count": len(moas),
                     "detail": (f"{len(moas)} prefixes seen with a competing origin."
                                if moas else "No competing origins observed."),
-                    "remediation": "Investigate each competing origin; if unauthorised, it is a hijack."
+                    "remediation": "Investigate each competing origin; if unauthorized, it is a hijack."
                     if moas else "",
                 }
             )
@@ -212,7 +212,7 @@ def register_operator_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
                             "affected": weak,
                             "count": len(weak),
                             "detail": f"{len(weak)} prefixes seen by far fewer peers than their "
-                            f"siblings (median {median}) — likely being filtered somewhere.",
+                            f"siblings (median {median}). Likely being filtered somewhere.",
                             "remediation": "Check RPKI/IRR validity and upstream filters for these "
                             "prefixes; thin visibility usually means a rejected or missing object.",
                         }
@@ -238,7 +238,7 @@ def register_operator_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
                         "severity": "medium",
                         "affected": [x["cidr"] for x in unrouted_findings],
                         "count": len(unrouted_findings),
-                        "detail": f"Allocated space with no visible more-specific — e.g. ~"
+                        "detail": f"Allocated space with no visible more-specific, e.g. ~"
                         f"{worst['unrouted_addresses']} addresses under {worst['cidr']}. Unannounced "
                         "space is the easiest to hijack unnoticed.",
                         "remediation": "Publish a covering ROA permitting only the intended "
@@ -273,7 +273,7 @@ def register_operator_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
     ) -> dict:
         """Pre-flight: will announcing `prefix` from `origin_asn` validate? Checks the
         covering ROA (and max-length), IRR route objects, who announces it today, and
-        — because freshly transferred space keeps the old holder's ROAs — whether the
+        (because freshly transferred space keeps the old holder's ROAs) whether the
         registration changed recently. Returns verdict clear | warn | blocked."""
         origin_asn = normalize_asn(origin_asn)
         plen = _plen(prefix)
@@ -300,7 +300,7 @@ def register_operator_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
                 ml = next((r.get("max_length") for r in records), None)
                 rpki_status = {
                     "status": "invalid",
-                    "reason": f"ROA(s) authorise {other}"
+                    "reason": f"ROA(s) authorize {other}"
                     + (f", max_length {ml}" if ml is not None else "")
                     + f"; announcing from AS{origin_asn} would be RPKI-invalid.",
                     "would_be_rejected_by": "any network performing origin validation",
@@ -349,7 +349,7 @@ def register_operator_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
             warns.append(irr_status["detail"])
         if recently_transferred:
             warns.append(
-                "Space changed registered holder within 90 days — the previous holder's ROAs may "
+                "Space changed registered holder within 90 days. The previous holder's ROAs may "
                 "still be published; confirm before announcing."
             )
         verdict = "blocked" if blockers else ("warn" if warns else "clear")
@@ -375,7 +375,7 @@ def register_operator_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
         window: str = "7d",
     ) -> dict:
         """Where can the internet see this prefix, and where can it not? Peer and
-        collector reach, upstreams, and — the useful part — a ratio against sibling
+        collector reach, upstreams, and a ratio against sibling
         prefixes. Absolute peer counts mean little; a prefix seen by 40 peers when its
         siblings are seen by 330 is being filtered."""
         start, end = window_from_shorthand(window, default_days=7)
@@ -405,7 +405,7 @@ def register_operator_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
             warnings.append(
                 warning(
                     "single_upstream",
-                    "Reachable through one upstream only — a single point of failure and a "
+                    "Reachable through one upstream only: a single point of failure and a "
                     "common cause of thin visibility.",
                 )
             )
@@ -414,7 +414,7 @@ def register_operator_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
                 warning(
                     "filtered",
                     f"Seen by {peers} peers vs a sibling median of {baseline['median_across_siblings']} "
-                    f"({int(baseline['ratio'] * 100)}%). This prefix is being filtered somewhere — "
+                    f"({int(baseline['ratio'] * 100)}%). This prefix is being filtered somewhere. "
                     "check RPKI/IRR validity and upstream filters.",
                 )
             )

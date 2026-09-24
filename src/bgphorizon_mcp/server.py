@@ -16,18 +16,24 @@ from .resources import register_resources
 from .tools import register_tools
 
 INSTRUCTIONS = """\
-BGPHorizon exposes global BGP routing intelligence — routing history, prefix/ASN \
+BGPHorizon exposes global BGP routing data: routing history, prefix/ASN \
 analysis, RPKI/IRR/RDAP/PeeringDB, and routing-anomaly detections.
 
 Two habits keep conclusions correct:
 1. Persistence before narrative. A prefix seen on 2 of 60 days is transient, not a \
 migration. Trust the server's `classification` and `origin_history`, never a bare \
 `first_seen`.
-2. Attribution before alarm. Check `concentration`/`single_vantage_point` warnings — \
+2. Attribution before alarm. Check `concentration`/`single_vantage_point` warnings; \
 a spike from one collector peer is a measurement artifact, not a routing event. Call \
 `platform_baseline` before calling anything anomalous.
 
-Every response includes `warnings[]` and `meta`. Read the warnings.\
+Every response includes `warnings[]` and `meta`. Read the warnings.
+
+Writing anything up for a person: read `bgphorizon://reference/writing-guide` and \
+`bgphorizon://reference/qa-checklist` BEFORE drafting, and follow them. They are \
+short, and they are the difference between a report an operator trusts and one \
+that reads as generated. For a full document use the `write_report` prompt, which \
+carries the whole procedure and the report template.\
 """
 
 

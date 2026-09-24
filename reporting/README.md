@@ -1,60 +1,84 @@
 # Writing BGP reports with any LLM client
 
 The MCP server ships everything needed to produce a **defensible, house-style BGP
-routing report** from *any* MCP-capable client — Claude Code, Claude Desktop,
+routing report** from any MCP-capable client: Claude Code, Claude Desktop,
 OpenAI (Codex CLI / Agents SDK / ChatGPT), Gemini CLI, Cursor, and others.
 
 It's the same three steps everywhere. Only step 1 (how you connect the server) and
-*where* you paste the system prompt differ per client — both are spelled out below.
+*where* you paste the system prompt differ per client. Both are spelled out below.
 
-## Recommended workflow (what works best)
+## Hosted or cloned: what each one gives you
 
-For the highest-quality output, **clone this repo and point the model at the on-disk
-kit** — it includes the build/QA tooling the MCP itself can't run for you:
+The server carries the standards, not just the data. Everything needed to write
+a house-style report travels over MCP, so a hosted client that never clones
+anything produces the same document.
 
-1. **Clone** — `git clone https://github.com/bgphorizon/bgphorizon-mcp`
-2. **Register the MCP** with your client (hosted or self-hosted; see below).
-3. **Ask for a report, and tell the model to use the `reporting/` directory** for the
-   QA standards, template, and CSS — then run
-   [`build-report.sh`](build-report.sh) to inline the CSS, validate the HTML, and
-   render a PDF/PNG.
+| | Hosted (`https://bgphorizon.com/mcp`) | Clone of this repo |
+|---|---|---|
+| 22 investigation tools | yes | yes |
+| `write_report` prompt (full procedure, asks whether to review findings first) | yes | yes |
+| Writing guide, QA checklist, methodology, worked examples | yes, as resources | yes, on disk |
+| Report template with the house CSS inlined | yes | yes |
+| `style-lint.py`, an automated check for the banned list | no | yes |
+| `build-report.sh`: validate HTML, run the lint, render PDF and PNG | no | yes |
 
-Why this matters: the MCP's `report-template` resource is self-contained, but the real
-value of the on-disk kit is [`WRITING-GUIDE.md`](WRITING-GUIDE.md) (voice + the "avoid"
-table), [`QA-CHECKLIST.md`](QA-CHECKLIST.md) (the pre-publication pass), and
-`build-report.sh` (which catches undefined CSS vars, unreplaced placeholders, and
-invalid nesting, and produces the PDF). A model that only reads the MCP resource can
-produce a good report, but a model told to *follow the on-disk `reporting/` kit and run
-`build-report.sh`* produces a **house-standard** one. When you invoke `write_report`,
-explicitly say: *"use the `reporting/` directory for the writing guide, QA checklist,
-template and CSS, and run build-report.sh at the end."*
+So clone when you want the build to **fail** on a style violation and to get a
+rendered PDF and PNG out the other end. Do not clone expecting better standards:
+they are the same words either way, and the server tells the model to read them.
 
-**No clone?** The hosted/no-install path still works — the MCP serves the full standards
-as resources (`writing-guide`, `qa-checklist`, `methodology`, and a `report-template`
-with the house CSS already inlined). You just don't get the local build/render script.
+Hosted, the model fetches them itself:
+
+```
+bgphorizon://reference/writing-guide      style rules and the banned list
+bgphorizon://reference/qa-checklist       the pre-publication pass
+bgphorizon://reference/methodology        evidence order and the two checks
+bgphorizon://reference/report-examples    published reports and what review caught
+bgphorizon://reference/report-template    the skeleton, CSS already inlined
+```
+
+You do not need to name those resources yourself. The `write_report` prompt
+reads them as step 1, and the server's own instructions tell any connected model
+to read the guide and checklist before drafting anything for a person.
+
+Cloned, point the model at `reporting/` instead and finish with
+`./reporting/build-report.sh my-report.html`, which inlines the CSS, checks the
+HTML for unclosed tags and undefined CSS variables, runs `style-lint.py`, and
+renders the PDF and PNG.
 
 ## The workflow (three steps)
 
 1. **Connect the MCP server** to your client (once). Full per-client config is in
    [`../docs/SETUP.md`](../docs/SETUP.md); the essentials are repeated below.
-2. **Give the model the method** — set your agent's system prompt to
-   [`SYSTEM-PROMPT.md`](SYSTEM-PROMPT.md). This is the step people skip, and it's the
-   one that determines quality: it installs the two checks (persistence, and
-   vantage-point attribution) that keep conclusions correct.
-3. **Ask for the report.** The server exposes a `write_report` **prompt** that drives
-   the whole flow — it reads the reference resources, runs the investigation tools to
-   gather evidence, and fills the HTML template. Clients that surface MCP prompts let
-   you invoke it directly; anywhere else, just say *"write a BGP report on AS13335 over
-   the last 60 days."*
+2. **Ask for the report.** The server exposes a `write_report` **prompt** that
+   drives the whole flow: it reads the reference resources, runs the
+   investigation tools, and fills the HTML template. Clients that surface MCP
+   prompts let you invoke it directly, for example
+   `/bgphorizon:write_report AS13335 over the last 60 days`. Anywhere else, say
+   *"write a BGP report on AS13335 over the last 60 days"* and the server's own
+   instructions still send the model to the writing guide and QA checklist first.
+3. **Optional, for a cold agent**: set the system prompt to
+   [`SYSTEM-PROMPT.md`](SYSTEM-PROMPT.md) (needs a clone). The two checks it
+   installs, persistence and vantage-point attribution, already reach every
+   connected client through the server's instructions, so this is reinforcement
+   for a long-running agent rather than a missing piece.
 
-That's it. The model uses the 20 tools to gather evidence and the bundled
+The model uses the 22 tools to gather evidence and the bundled
 `report-template` resource to produce a single self-contained HTML file.
+
+Before it starts, `write_report` has the model ask whether you want to review
+the findings first. Say yes and it gathers the evidence, then stops and walks
+you through what it found, numbered, with the confidence behind each one and
+what it could not determine. You can question any of it, ask for more lookups,
+or correct it from what you know about the network before a line of the report
+exists. Say no and it runs straight through. If your input changes a
+conclusion, the report records the correction instead of quietly presenting the
+corrected version.
 
 ## Per-client setup
 
 You need a BGPHorizon API key (`bgps_…`) from your account's API panel. Use the
 **hosted** endpoint (`https://bgphorizon.com/mcp`, nothing to install) or self-host
-with `uvx bgphorizon-mcp` — either works identically for reports.
+from a source checkout. Either works identically for reports.
 
 ### Claude Code
 ```bash
@@ -65,24 +89,24 @@ claude mcp add --transport http bgphorizon https://bgphorizon.com/mcp \
 # 2. method: drop the system prompt into your project
 mkdir -p .claude && cp path/to/reporting/SYSTEM-PROMPT.md .claude/CLAUDE.md
 
-# 3. report — the prompt is a slash command:
+# 3. report: the prompt is a slash command:
 #    /bgphorizon:write_report AS13335 over the last 60 days
 ```
 
 ### Claude Desktop
-1. **Connect** — add to `claude_desktop_config.json`:
+1. **Connect**: add to `claude_desktop_config.json`:
    ```json
    { "mcpServers": { "bgphorizon": {
        "url": "https://bgphorizon.com/mcp",
        "headers": { "Authorization": "Bearer bgps_your_key" } } } }
    ```
-2. **Method** — paste `SYSTEM-PROMPT.md` into a Project's custom instructions (or the
+2. **Method**: paste `SYSTEM-PROMPT.md` into a Project's custom instructions (or the
    top of the chat).
-3. **Report** — pick the **write_report** prompt from the connector's prompt menu, or
+3. **Report**: pick the **write_report** prompt from the connector's prompt menu, or
    ask *"write a BGP report on AS13335."*
 
 ### OpenAI
-- **Codex CLI / Agents SDK** — register the server (stdio for self-host, HTTP for
+- **Codex CLI / Agents SDK**: register the server (stdio for self-host, HTTP for
   hosted; see [`../docs/SETUP.md`](../docs/SETUP.md)) and set the agent's
   `instructions`/system message to the contents of `SYSTEM-PROMPT.md`:
   ```python
@@ -90,19 +114,19 @@ mkdir -p .claude && cp path/to/reporting/SYSTEM-PROMPT.md .claude/CLAUDE.md
                 instructions=open("reporting/SYSTEM-PROMPT.md").read(),
                 mcp_servers=[server])
   ```
-- **ChatGPT (hosted MCP connector)** — add the connector with
+- **ChatGPT (hosted MCP connector)**: add the connector with
   `server_url=https://bgphorizon.com/mcp` and your bearer token, paste
   `SYSTEM-PROMPT.md` as a custom instruction, then ask for the report.
 
 ### Gemini CLI
-1. **Connect** — `~/.gemini/settings.json`:
+1. **Connect**: `~/.gemini/settings.json`:
    ```json
    { "mcpServers": { "bgphorizon": {
        "httpUrl": "https://bgphorizon.com/mcp",
        "headers": { "Authorization": "Bearer bgps_your_key" } } } }
    ```
-2. **Method** — put `SYSTEM-PROMPT.md` in your `GEMINI.md` / system prompt.
-3. **Report** — invoke the `write_report` prompt (`/mcp` lists them) or ask in natural
+2. **Method**: put `SYSTEM-PROMPT.md` in your `GEMINI.md` or system prompt.
+3. **Report**: invoke the `write_report` prompt (`/mcp` lists them) or ask in natural
    language.
 
 ### Cursor / Zed / VS Code / LangChain / n8n
@@ -115,17 +139,18 @@ workflow is identical; only the config file differs.
 | File | Purpose |
 |---|---|
 | `SYSTEM-PROMPT.md` | **Step 2.** Drop into your agent's system prompt so a cold model produces house-style output. |
-| `METHODOLOGY.md` | The procedure — evidence order + the two checks (persistence, vantage-point attribution). |
-| `WRITING-GUIDE.md` | House voice and structure for the write-up. |
+| `METHODOLOGY.md` | The procedure: evidence order and the two checks (persistence, vantage-point attribution). |
+| `WRITING-GUIDE.md` | Style rules, banned phrases, heading and title conventions. |
 | `TEMPLATE.html` | Self-contained HTML report skeleton (`{{PLACEHOLDER}}`s). |
 | `template-assets/report.css` | Styles to inline into the template. |
-| `build-report.sh` | Inlines the CSS and checks the output is standalone. |
+| `build-report.sh` | Inlines the CSS, validates structure, runs the style lint, renders PDF/PNG. |
+| `style-lint.py` | Fails on em-dashes, "not X but Y" and banned words; warns on Title Case headings. Works on HTML or Markdown. |
 | `QA-CHECKLIST.md` | Work through before publishing. |
 | `EXAMPLES.md` | Worked examples. |
 
 The `TEMPLATE.html` skeleton is also served by the server as the
 `bgphorizon://reference/report-template` resource, so a connected model can pull it
-without these files present — but keeping the kit handy lets you read, adapt, or run
+without these files present. Keeping the kit lets you read, adapt, or run
 the workflow by hand.
 
 ## What good output looks like

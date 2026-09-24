@@ -3,7 +3,7 @@
 Every detection is evaluated twice: "is this a violation?" and "is it *new*?"
 The second is judged against a rolling 30-day baseline. A violation already
 present in that window is **steady-state**; one never seen before is
-**anomalous**. Alerting only ever considers anomalous incidents — the internet
+**anomalous**. Alerting only ever considers anomalous incidents. The internet
 carries enormous amounts of permanent, harmless policy violation, and what
 matters is change. Each type therefore carries two severities (anomalous / steady).
 
@@ -26,16 +26,16 @@ matters is change. Each type therefore carries two severities (anomalous / stead
 high anomalous severity. Steady MOAS is almost always anycast or intentional
 multihoming.
 
-## Reading `actor_as` vs `baseline_asns` — do not get this backwards
+## Reading `actor_as` vs `baseline_asns`
 
-- **`baseline_asns`** — the origin(s) established as legitimate for the prefix
+- **`baseline_asns`**: the origin(s) established as legitimate for the prefix
   (from history / RPKI / IRR). The rightful party.
-- **`actor_as`** — the AS responsible for the *anomalous* condition. For a
+- **`actor_as`**: the AS responsible for the *anomalous* condition. For a
   hijack-shaped detection, this is the **offending** origin, not the victim.
 
 So if you are investigating AS X and X appears in `baseline_asns`, X is the
 *victim/rightful* party. If X is the `actor_as` and not in `baseline_asns`, X is
-the *offending* party. Inverting this makes a hijacker look like a victim — a real
+the *offending* party. Inverting this makes a hijacker look like a victim, a real
 error made in a past report where a court's own invalid announcements made it look
 like the target of a hijack.
 
@@ -44,12 +44,12 @@ The `detections` tool computes an explicit `direction` field to remove this trap
 
 ## Severity levels
 
-- **high** — plausibly an active routing incident; the prefix owner would want to
+- **high**: plausibly an active routing incident; the prefix owner would want to
   know within minutes.
-- **medium** — a real misconfiguration or policy problem worth fixing, rarely an
+- **medium**: a real misconfiguration or policy problem worth fixing, rarely an
   immediate reachability threat.
-- **low** — hygiene; weak evidence on its own.
-- **info** — steady-state record, never alerted; useful for "everything currently
+- **low**: hygiene; weak evidence on its own.
+- **info**: steady-state record, never alerted; useful for "everything currently
   invalid" queries.
 
 Authoritative values live in the detector catalog (`services/internal/detector/catalog.go`).

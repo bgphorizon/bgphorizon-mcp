@@ -1,6 +1,6 @@
 """CLI entrypoint for ``bgphorizon-mcp``.
 
-    bgphorizon-mcp                         # stdio (default) — for local clients
+    bgphorizon-mcp                         # stdio (default), for local clients
     bgphorizon-mcp --transport http --port 8931
     bgphorizon-mcp --selftest              # verify API reachability + surface counts
     bgphorizon-mcp --version
@@ -89,7 +89,7 @@ def _selftest(mcp, settings) -> int:
     resources = asyncio.run(mcp.list_resources())
     prompts = asyncio.run(mcp.list_prompts())
     line(len(tools) == 22, f"{len(tools)} tools")
-    line(len(resources) == 8, f"{len(resources)} resources")
+    line(len(resources) == 9, f"{len(resources)} resources")
     line(len(prompts) == 8, f"{len(prompts)} prompts")
 
     return 0 if ok else 1

@@ -22,14 +22,14 @@
 
   <header class="masthead">
     <div class="brand"><span class="wm">BGP<em>Horizon</em></span></div>
-    <div class="kicker">Routing Report</div>
+    <div class="kicker">Routing report</div>
   </header>
 
   <div class="col">
     <p class="eyebrow">Report &middot; {{DATE}}</p>
     <h1>{{TITLE}}</h1>
     <p class="standfirst">
-      {{STANDFIRST — 3–4 sentences stating the finding. No suspense. Name the
+      {{STANDFIRST: 3–4 sentences stating the finding. No suspense. Name the
       parties, say what happened, say whether it matters.}}
     </p>
   </div>
@@ -84,7 +84,7 @@
   </div>
 
   <div class="col">
-    <p>{{PROSE — keep to the 68ch measure. Data blocks below break wider.}}</p>
+    <p>{{PROSE: keep to the 68ch measure. Data blocks below break wider.}}</p>
   </div>
 
   <figure>
@@ -155,7 +155,7 @@
 
 <!--
 ================================================================================
-COMPONENT REFERENCE — copy blocks in as needed, delete the rest
+COMPONENT REFERENCE: copy blocks in as needed, delete the rest
 ================================================================================
 
 CALLOUT (three variants: default teal, .warn amber, .correction red)
@@ -166,7 +166,7 @@ CALLOUT (three variants: default teal, .warn amber, .correction red)
   </div>
 
 --------------------------------------------------------------------------------
-DAILY VOLUME STRIP — one row per day
+DAILY VOLUME STRIP: one row per day
 
   <div class="panel">
     <div class="panel-hd"><h4>Daily announcements</h4><span class="sub">range</span></div>
@@ -180,7 +180,7 @@ DAILY VOLUME STRIP — one row per day
   artifact series (e.g. one dominant collector).
 
 --------------------------------------------------------------------------------
-EVENT CURVE — reachability over time
+EVENT CURVE: reachability over time
 
   <div class="curve">
     <div class="cv"><span class="cv-t">05:52:00</span><span class="cv-tr"><span class="cv-b"
@@ -188,7 +188,7 @@ EVENT CURVE — reachability over time
   </div>
 
 --------------------------------------------------------------------------------
-HANDOVER STRIP — one cell per day per prefix; shows who originated what
+HANDOVER STRIP: one cell per day per prefix; shows who originated what
 
   <div class="hand">
     <div class="hv"><span class="hv-p">153.43.254.0/24</span><span class="hv-s">
@@ -203,10 +203,10 @@ HANDOVER STRIP — one cell per day per prefix; shows who originated what
   </div>
 
   hv-c = party A, hv-m = party B, hv-b = both, hv-n = not announced.
-  Always render hv-n explicitly — absence is data.
+  Always render hv-n explicitly. Absence is data.
 
 --------------------------------------------------------------------------------
-PATH BLOCK — AS paths with annotation
+PATH BLOCK: AS paths with annotation
 
   <div class="paths">
     <div class="pgroup">
@@ -224,7 +224,7 @@ PATH BLOCK — AS paths with annotation
   .backup highlights the non-default path. Read right to left; say so in the caption.
 
 --------------------------------------------------------------------------------
-EPISODE BARS — discrete dated events sized by magnitude
+EPISODE BARS: discrete dated events sized by magnitude
 
   <div class="chart">
     <div class="ep-row">
@@ -250,7 +250,7 @@ INLINE UTILITIES
   <div class="col">                        constrains prose to 68ch
 
 --------------------------------------------------------------------------------
-COLOUR SEMANTICS — keep consistent across every figure in one document
+COLOR SEMANTICS: keep consistent across every figure in one document
 
   var(--teal)    party A / incumbent / baseline
   var(--orange)  party B / successor / the thing that changed
@@ -258,5 +258,5 @@ COLOUR SEMANTICS — keep consistent across every figure in one document
   var(--ink-3)   measurement artifact, de-emphasised
   var(--panel-2) absent / no data
 
-  Do not reuse a colour for a second meaning within one report.
+  Do not reuse a color for a second meaning within one report.
 -->

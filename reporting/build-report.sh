@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a BGPHorizon report: inline CSS, validate, render PDF + screenshot.
+# Build a BGPHorizon report: inline CSS, validate structure and style, render PDF + screenshot.
 #
 #   ./build-report.sh my-report.html [outdir]
 #
@@ -34,7 +34,7 @@ python3 - "$OUT/$NAME.html" <<'PY'
 import sys, re
 s = open(sys.argv[1]).read()
 VOID = {'area','base','br','col','embed','hr','img','input','link','meta','source','track','wbr'}
-# strip comments and style/script before checking structure — comments legitimately
+# strip comments and style/script before checking structure; comments legitimately
 # contain partial HTML snippets (the template's component reference does)
 body = re.sub(r'<!--.*?-->', '', s, flags=re.S)
 body = re.sub(r'<style.*?</style>', '', body, flags=re.S)
@@ -68,6 +68,10 @@ if errs:
 print("  structure OK")
 PY
 
+# ---- 2b. style lint ----------------------------------------------------------
+# The "Banned" table in WRITING-GUIDE.md: em-dashes, "not X but Y", filler words.
+python3 "$HERE/style-lint.py" "$OUT/$NAME.html"
+
 # ---- 3. render ---------------------------------------------------------------
 find_chrome() {
   for c in google-chrome chromium chromium-browser \
@@ -80,7 +84,7 @@ find_chrome() {
 CHROME="$(find_chrome || true)"
 
 if [ -z "${CHROME:-}" ]; then
-  echo "  no Chrome found — HTML built, skipping PDF/PNG"
+  echo "  no Chrome found. HTML built, skipping PDF/PNG"
   echo "  → $OUT/$NAME.html"
   exit 0
 fi
@@ -116,9 +120,9 @@ if not os.path.exists(p):
     print("  PDF not produced"); sys.exit(0)
 d = open(p, 'rb').read()
 pages = d.count(b'/Type /Page') - d.count(b'/Type /Pages')
-print(f"  PDF OK — {pages} pages, {len(d)//1024} KB, valid={d[:5] == b'%PDF-'}")
+print(f"  PDF OK: {pages} pages, {len(d)//1024} KB, valid={d[:5] == b'%PDF-'}")
 PY
 
 echo "  → $OUT/$NAME.{html,pdf,png}"
 echo
-echo "Now work through reporting/QA-CHECKLIST.md — especially §5, open the PNG."
+echo "Now work through reporting/QA-CHECKLIST.md, especially §5: open the PNG."

@@ -2,8 +2,8 @@
 
 These turn raw ``/api/v1`` payloads into the task-shaped structures the tool
 contracts promise (docs/mcp/TOOLS.md). Kept pure and importable so the logic that
-docs say a model tends to get wrong — persistence transitions, detection direction,
-upstream/prepend collapsing — is testable in isolation.
+docs say a model tends to get wrong (persistence transitions, detection direction,
+upstream/prepend collapsing) is testable in isolation.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ def registrant_name(rdap: dict | None) -> str | None:
 
 def irr_objects(irr: dict | None, observed_origins: set[int]) -> list[dict]:
     """Flatten IRR records to {origin_as, source, stale}. ``stale`` marks an IRR
-    origin never actually observed announcing the space."""
+    origin never observed announcing the space."""
     if not isinstance(irr, dict):
         return []
     records = irr.get("records") or irr.get("routes_v4") or []
@@ -192,14 +192,14 @@ def rpki_coverage(
     announced: list[str], roa_records: list[dict], asn: int
 ) -> tuple[list[str], list[str]]:
     """Split announced prefixes into (covered, uncovered) by proper RPKI origin
-    validation — not exact-CIDR matching.
+    validation, not exact-CIDR matching.
 
     An announced prefix is covered when some ROA for `asn` has a prefix that
     *contains* it with ``max_length >= announced_length``. A /20 ROA (max_length
     /24) therefore covers all the announced /24s under it, which exact-CIDR
     matching misses (and badly undercounts coverage for real networks).
     """
-    # Index distinct ROAs authorising this ASN: {(version, net_int, plen): max_maxlen}.
+    # Index distinct ROAs authorizing this ASN: {(version, net_int, plen): max_maxlen}.
     idx: dict[tuple[int, int, int], int] = {}
     min_len = {4: 33, 6: 129}
     for r in roa_records:

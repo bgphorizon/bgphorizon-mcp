@@ -1,5 +1,7 @@
 # Writing Guide
 
+<!-- style-lint: self-exempt: this file quotes the words it bans. -->
+
 House style for BGPHorizon reports. The research is covered in
 [`METHODOLOGY.md`](METHODOLOGY.md); this is about the document.
 
@@ -8,8 +10,8 @@ House style for BGPHorizon reports. The research is covered in
 ## What a report is
 
 A record of what the routing data showed, written so a competent non-specialist
-can follow it and a specialist can check it. Not a thriller, not a marketing
-asset, not a threat-intel bulletin.
+can follow it and a specialist can check it. It is a technical document in the
+same plain register as the platform itself.
 
 The reader is usually one of:
 - a **network operator** who needs to know whether to act
@@ -24,51 +26,95 @@ underneath.
 ## Structure
 
 ```
-Masthead                     brand, "Routing Report"
+Masthead                     brand, "Routing report"
 Title + standfirst           the finding in 3–4 sentences, no suspense
 Dateline                     generated-at, window, subjects
 Stat tiles                   4–5 numbers that frame the scale
 Glossary (collapsed)         plain-language terms
 01 …                         numbered sections, evidence-ordered
-Recommendations              prioritised, actionable (if applicable)
+Recommendations              prioritized, actionable (if applicable)
 Sources and scope            provenance + limits
 ```
 
 Number sections. Readers cite them.
 
-Order sections by **what the reader needs to know first**, not by the order you
+Order sections by what the reader needs to know first, never by the order you
 discovered things. The AS54994 report was researched by stumbling onto a MOAS;
 it's written as parties → transfer → handover → validation gap.
 
 ---
 
-## Voice
+## Style rules
+
+Reports use the same plain register as the platform's own pages and tooltips.
+The test is whether a network engineer would believe a colleague wrote it.
 
 **Lead with the answer.** The standfirst states the finding. No "we set out to
-investigate…".
+investigate", no build-up.
 
-**Vary sentence length.** Long-short-long reads as human. Uniform medium-length
-sentences read as generated.
+**One idea per sentence, but vary the length.** If a sentence needs a dash or a
+second clause to carry a second point, make it two. Then read the paragraph
+aloud: a run of sentences all the same length reads as generated whether they
+are all long or all short. A short one after two longer ones is what a person
+writing quickly actually produces.
 
 **Concrete nouns, specific numbers.** "Roughly 74% of observed vantage points"
-beats "a significant portion of the internet."
+beats "a significant portion of the internet".
 
-**Active voice, past tense for events, present for current state.**
+**Active voice. Past tense for events, present for current state.**
 
-### Avoid
+**Answer, do not narrate.** Never restate the question before answering it, and
+never announce what a section is about to do. "To determine whether this was a
+hijack, we examined the origin history" is two wasted lines: the finding and its
+evidence say the same thing and say it faster.
 
-| Don't | Do |
+**Confidence should vary with the evidence.** Say "AS20473 originated these
+prefixes for the whole window" flatly when it is flat, and "the cause cannot be
+determined from routing data" flatly when it cannot. Hedging everything to the
+same degree is the giveaway: it means the writer never weighed anything.
+
+**No filler.** Delete any word that does not change the meaning of the
+sentence. "Actually", "really", "simply", "clearly" and "essentially" never
+survive this test.
+
+### Banned
+
+These are hard rules, not preferences. The QA checklist greps for them and the
+build script fails on the first three.
+
+| Never | Instead |
 |---|---|
-| "It's not X, it's Y" repeatedly | Vary construction; use it once at most |
-| Em-dash every other sentence | Use commas, semicolons, full stops |
-| "Notably," "Interestingly," "It's worth noting" | Just say the thing |
-| "Deep dive", "unpack", "leverage" | "Examine", "explain", "use" |
-| Tricolons everywhere | One list of three is fine; four in a row is a tic |
-| Ending every section with a summary | Trust the reader |
-| Hedging boilerplate | State the limit precisely, once |
+| Em-dashes (`—`), in any position | A full stop, comma, colon or semicolon |
+| "not X but Y", "not just X, it's Y", "it's not X, it's Y" | State Y. Mention X only if the reader would otherwise assume it |
+| "Notably", "Interestingly", "Importantly", "Crucially", "It's worth noting", "Keep in mind" | Delete the word and keep the sentence |
+| "Why this matters", "Key takeaways", "Bottom line", "In summary", "TL;DR" as headings or lead-ins | Put the point in the section's first sentence |
+| "Deep dive", "unpack", "leverage", "robust", "comprehensive", "seamless", "landscape", "journey" | "Examine", "explain", "use", "reliable", "complete", plain nouns |
+| "Classic", "textbook", "the shape of", "smoking gun", "red flag", "tell-tale" | Describe what was observed |
+| Rhetorical questions ("So what changed?") | The answer |
+| A summary paragraph closing each section | Nothing. The section ends when the evidence does |
+| Three parallel items for rhythm ("fast, cheap and reliable") when only two are true | Only the items that are true |
+| Emoji, exclamation marks, "SHOCKING"-style intensifiers | None |
 
-**On em-dashes specifically:** they are fine sparingly. Several per paragraph is
-the single strongest tell of generated prose.
+The allowance is zero. If a contrast is the point ("the platform ingests BGP
+updates rather than full tables"), write it as two plain statements: what the
+data is, then what it does not cover.
+
+### Headings
+
+Section titles, figure titles and callout titles follow the platform's
+conventions:
+
+- **Sentence case.** "Origin changes in the court block", not "Origin Changes
+  In The Court Block".
+- **Descriptive, literal, complete.** The heading says what the section
+  contains. "Upstream and downstream relationships", not "Who they depend on".
+  "Reachability during the outage", not "Going dark".
+- **No fragments for effect**, no puns, no colon-teasers ("One prefix: two
+  stories"). A reader skimming only the headings should get the facts, not a
+  trailer.
+- **No question headings.**
+- Figure captions state what the figure shows and its caveat, in that order,
+  as plain sentences.
 
 ---
 
@@ -102,9 +148,9 @@ the report.
 ### State limits plainly
 
 Every report should name:
-- the **data floor** — and that earlier events are invisible
-- **collector sampling** — a partial view, not the whole internet
-- **sample size** — seven episodes is not a cadence
+- the **data floor**, and that earlier events are invisible
+- **collector sampling**: a partial view, not the whole internet
+- **sample size**: seven episodes is not a cadence
 - what **cannot be determined** from routing data alone
 
 One sentence each. Not a disclaimer section.
@@ -145,13 +191,13 @@ public collectors, registry from RDAP/whois, RPKI from published repositories.
 
 Charts follow the same honesty rules.
 
-- **Colour encodes meaning.** In handover charts, one colour per party, held
+- **Color encodes meaning.** In handover charts, one color per party, held
   consistent across every figure in the document.
 - **Separate artifact from signal visually.** When one collector dominates, show
   it as a separate stacked series so the reader sees the split.
 - **Caption what the reader should take away**, plus the caveat. Captions are
   where "these are registry labels, not current facts" belongs.
-- **Show gaps.** Absence of data is data — the handover strip renders
+- **Show gaps.** Absence of data is data. The handover strip renders
   "not announced" explicitly rather than leaving whitespace.
 - **Never a dual-axis chart.** Two measures of different scale get two charts.
 
@@ -161,11 +207,11 @@ Charts follow the same honesty rules.
 
 When the report has an actionable audience:
 
-- **Prioritise** — High / Medium / Low, ordered
-- **Say what to do, not what's wrong** — "Create ROAs authorising AS21799 with
+- **Prioritize**: High / Medium / Low, ordered
+- **Say what to do, not what's wrong**: "Create ROAs authorizing AS21799 with
   max_length 24", not "RPKI coverage is inadequate"
-- **Explain the consequence** — what changes if they do it
-- **Include the ones you can't verify** — "Provider-side logs for 00:05–00:15 UTC
+- **Explain the consequence**: what changes if they do it
+- **Include the ones you can't verify**: "Provider-side logs for 00:05–00:15 UTC
   would establish whether the cause was at the edge or upstream"
 - **Order by impact, not by section order.** The AS54994 report leads with the
   court's unsigned space, which appears late in the evidence.
@@ -174,11 +220,14 @@ When the report has an actionable audience:
 
 ## Titles
 
-Descriptive, specific, no clickbait.
+Descriptive, specific, sentence case. The title is a statement of what the
+report found, in the register of a status page.
 
-> ✅ "AS54994: a court address block changes hands, ten months late"
-> ✅ "Recurring transient origin changes in US Army address space"
-> ❌ "SHOCKING: Chinese CDN seizes US court network"
-> ❌ "An investigation into AS54994"
+> Good: "AS54994: court address block reassigned ten months after the transfer"
+> Good: "Recurring transient origin changes in US Army address space"
+> Bad: "SHOCKING: Chinese CDN seizes US court network"
+> Bad: "An investigation into AS54994"
+> Bad: "AS54994: a tale of two origins"
 
-The title should survive being wrong about the interesting part.
+The title should still be accurate if the interesting part turns out to be
+routine.

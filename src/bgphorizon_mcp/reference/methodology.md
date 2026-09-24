@@ -1,6 +1,6 @@
 # Report Methodology
 
-The research procedure behind the published reports. Follow it in order — the
+The research procedure behind the published reports. Follow it in order. The
 ordering is what prevents the two error classes documented at the bottom.
 
 ---
@@ -10,7 +10,7 @@ ordering is what prevents the two error classes documented at the bottom.
 ### 1. Identify before describing
 
 Resolve every ASN and prefix through registry data before writing a word about
-behaviour. Never infer an operator from a name.
+behavior. Never infer an operator from a name.
 
 ```
 identify(asn=N) / identify(prefix=P)
@@ -67,7 +67,7 @@ timeline(target, group_by="collector")
 ```
 
 If one collector or peer supplies most of the signal, it is a **measurement
-artifact** — that peer's session, not the target's routing. Say so and exclude it.
+artifact**: that peer's session, not the target's routing. Say so and exclude it.
 
 The tell for a flapping collector session: identical AS paths, all prefixes
 re-announced in the same second, no withdrawals in between.
@@ -80,7 +80,7 @@ re-announced in the same second, no withdrawals in between.
 reachability(prefixes=[...], from, to, interval="10s")
 ```
 
-→ *"At the peak, 979 of 1,323 tracked observations had no route — roughly 74% —
+→ *"At the peak, 979 of 1,323 tracked observations had no route, roughly 74%,
 for about twenty minutes."*
 
 Sample finely enough. A 2-minute interval missed an event whose median restore
@@ -88,10 +88,10 @@ time was 19 seconds.
 
 ### 6. Always report RPKI and IRR coverage
 
-Including — especially — absence. A clean routing result on unsigned space is a
+Including absence. A clean routing result on unsigned space is a
 description of what happened, not a guarantee enforced by anything.
 
-Check `max_length` too. A ROA on a `/24` with `max_length: 32` authorises any
+Check `max_length` too. A ROA on a `/24` with `max_length: 32` authorizes any
 more-specific under that origin.
 
 ### 7. Establish direction
@@ -111,14 +111,14 @@ When the question is *where is this hosted*, in descending order of reliability:
 
 1. **Reverse DNS.** Sweep the whole /24. Operator naming frequently encodes site
    codes and facility names. Absence of PTRs across an entire block is itself a
-   signal — legitimate hosting almost always sets them.
+   signal; legitimate hosting almost always sets them.
 2. **PeeringDB facility intersection.** Take the network's upstreams and intersect
    their facility lists. For one target, three upstreams shared exactly one city.
    This is the most reliable routing-only method.
 3. **AS path composition.** Which IXPs and regional networks appear.
 4. **Registry address.** Often a billing address, not a facility. Weak.
 5. **Commercial geolocation.** Weakest. **Query at least three.** Their
-   *disagreement* is more informative than any single answer — one prefix returned
+   *disagreement* is more informative than any single answer. One prefix returned
    Rotterdam / London / London / `EU` / `IR`, which is the fingerprint of leased
    space with no stable anchor.
 
@@ -133,11 +133,11 @@ Frankfurt" is not.
 Both survived until an explicit verification pass. Both are now steps in the
 procedure above.
 
-### Error 1 — mistaking transience for migration
+### Error 1: mistaking transience for migration
 
 **What happened.** `/api/asn/prefixes` returns `first_seen` per prefix. Used
 across six DoD ASNs, it produced clean block-aligned waves that looked exactly
-like a staged migration — 43 prefixes on one date, 112 on another, each confined
+like a staged migration: 43 prefixes on one date, 112 on another, each confined
 to one installation's /16. Most of a report was drafted on that reading.
 
 **Why it was wrong.** `first_seen` records the first occurrence only. Day-by-day
@@ -154,13 +154,13 @@ Two brief episodes, not a handover. Nothing changed hands.
 
 **Prevention.** Step 3. Never conclude change from `first_seen`.
 
-### Error 2 — mistaking a collector artifact for an event
+### Error 2: mistaking a collector artifact for an event
 
 **What happened.** Daily announcements for a water utility's prefixes tripled from
 28 July and stayed elevated. It read as a sustained routing regime change.
 
 **Why it was wrong.** Nearly all of it came from one peer (AS3491 at
-`route-views.hkix`) — 10,201 of its 10,392 messages after that date, every one
+`route-views.hkix`): 10,201 of its 10,392 messages after that date, every one
 carrying an identical, correct AS path, with all seven prefixes re-announced in
 the same second. A flapping collector session, not routing.
 
@@ -174,6 +174,6 @@ Never publish without one. Both errors above were caught here, not during
 research. See [`QA-CHECKLIST.md`](QA-CHECKLIST.md).
 
 The minimum: **every number in the output must trace to a specific call, and be
-re-derived from source before publishing.** Machine-check it where possible —
+re-derived from source before publishing.** Machine-check it where possible:
 extract the figures from the rendered document and diff them against the source
 JSON.

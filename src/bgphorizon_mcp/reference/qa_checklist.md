@@ -1,5 +1,7 @@
 # QA Checklist
 
+<!-- style-lint: self-exempt: this file quotes the words it bans. -->
+
 Run before publishing. Every error that reached a draft was caught here, not
 during research.
 
@@ -53,14 +55,14 @@ for prefix, v in src['prefixes'].items():
 - [ ] Percentages match their fractions.
 - [ ] Chart bar widths match the values (`value / max × 100`).
 - [ ] Totals equal the sum of parts.
-- [ ] Date arithmetic correct — gap days, durations, windows.
+- [ ] Date arithmetic correct: gap days, durations, windows.
 - [ ] Counts consistent between prose, tables and captions.
 
 ---
 
 ## 4. Document
 
-- [ ] **HTML validates** — no unclosed tags:
+- [ ] **HTML validates**, no unclosed tags:
 
 ```python
 import re
@@ -76,8 +78,8 @@ assert not stack, f'unclosed: {stack}'
 ```
 
 - [ ] **No undefined CSS variables.**
-- [ ] **Both themes styled** — check light and dark.
-- [ ] **Print stylesheet works** — render the PDF and page through it.
+- [ ] **Both themes styled**: check light and dark.
+- [ ] **Print stylesheet works**: render the PDF and page through it.
 - [ ] **Tables scroll** rather than pushing the body sideways.
 - [ ] **Chart row counts match** the source series length.
 
@@ -108,8 +110,15 @@ chrome --headless --disable-gpu --no-pdf-header-footer \
 - [ ] Read the standfirst alone. Does it state the finding?
 - [ ] Read only the section headings. Do they tell the story in order?
 - [ ] Read the recommendations alone. Are they actionable without the body?
-- [ ] Scan for the tells in [`WRITING-GUIDE.md`](WRITING-GUIDE.md#avoid) —
-      em-dash density, repeated "not X but Y", uniform sentence length.
+- [ ] **Style lint passes**: `reporting/style-lint.py report.html` (the build
+      script runs it). Zero em-dashes, zero "not X but Y", none of the banned
+      words in [`WRITING-GUIDE.md`](WRITING-GUIDE.md#banned).
+- [ ] **Headings are sentence case and literal.** Read them as a list: each one
+      names what its section contains, with no puns, teasers or questions.
+- [ ] **No section ends with a summary paragraph.** No "In short", no "Why this
+      matters" callouts.
+- [ ] **Filler removed.** Search for "actually", "really", "simply", "clearly",
+      "notably", "importantly". Each one deleted, sentence kept.
 - [ ] Would you be comfortable if the subject of the report read it?
 
 That last one is the real test. Every published report should be defensible to the
@@ -126,10 +135,11 @@ Kept as evidence that the pass is not ceremonial.
 | "Staged migration" that was transient episodes | §1 persistence |
 | 3× volume rise that was one flapping collector peer | §1 concentration |
 | 382 handoffs (15 were window-edge artifacts) → 367 | §1 window-edge |
-| "No IRR coverage" — 9 of 13 blocks had objects | §1 every row queried |
-| "Zero withdrawals from this peer" — there were 2 | §1 re-derive |
+| "No IRR coverage": 9 of 13 blocks had objects | §1 every row queried |
+| "Zero withdrawals from this peer": there were 2 | §1 re-derive |
 | Two RPKI rows never actually queried | §1 every row queried |
 | An ASN in a table with no verification | §2 entities verified |
 | Prose phrase accidentally set in monospace | §5 render |
 | Ellipsis glyph unreadable in mono column | §5 render |
+| Em-dashes and "not X but Y" throughout a draft | §6 style lint |
 | Inventory row using rollup while others used raw | §1 one data path |

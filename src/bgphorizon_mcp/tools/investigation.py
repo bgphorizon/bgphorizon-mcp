@@ -1,4 +1,4 @@
-"""Investigation tools (17) — analysing a network you do not run.
+"""Investigation tools (17): analyzing a network you do not run.
 
 Each tool is an analytical operation, not a REST route: it composes one or more
 ``/api/v1`` calls and annotates the result with ``warnings`` so the model cannot
@@ -140,7 +140,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
 
         Returns each prefix with a **server-computed** persistence classification
         (persistent | intermittent | transient). Do not infer persistence from
-        first_seen — use this."""
+        first_seen. Use this."""
         asn = normalize_asn(asn)
         start, end = default_window(start, end, days=30)
         pres = client.presence(asn=asn, **{"from": start, "to": end})
@@ -240,7 +240,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         start: Optional[str] = None,
         end: Optional[str] = None,
     ) -> dict:
-        """Day-by-day origins for a prefix — THE persistence check. Returns each
+        """Day-by-day origins for a prefix. This is the persistence check. Returns each
         day's origin set, MOAS days, and classified transitions (handover vs
         episode vs intermittent). This is the direct fix for mistaking a transient
         blip for a migration."""
@@ -261,7 +261,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
             warnings.append(
                 warning(
                     "stable_origin",
-                    "A single origin across the window — no handover or contest to narrate.",
+                    "A single origin across the window. No handover or contest to narrate.",
                 )
             )
         return {
@@ -283,7 +283,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         """How many observing peers had no route, and when. Returns an event-driven
         series plus server-computed outage windows (>=5% of peers routeless). Accepts
         multiple prefixes so a multi-prefix event resolves in one call. Keep the
-        window tight — this reads raw events."""
+        window tight; this reads raw events."""
         start, end = default_window(start, end, days=1)
         results = []
         warnings: list[dict] = []
@@ -319,7 +319,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         """How globally reachable a prefix is: the share of full-table feeds that see it over a
         30-day footprint, classified global / regional / local, with a per-region penetration
         breakdown. Distinct from ``reachability`` (which tracks per-peer routeless windows over a
-        tight time span) — this answers "is this prefix propagated worldwide, or only in some
+        tight time span). This answers "is this prefix propagated worldwide, or only in some
         regions?". A regional or local result can indicate a route leak, upstream filtering, or
         limited propagation. Region reflects the observing collector's location (a vantage proxy),
         not the announcing network's geography."""
@@ -348,7 +348,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         """Platform findings for an ASN or prefix, with direction made explicit.
         `direction` (queried_entity_is_invalid_party | queried_entity_is_baseline |
         third_party) tells you whether the queried entity is the offender or the
-        victim — reading actor_as against baseline_asns by hand inverts conclusions."""
+        victim. Reading actor_as against baseline_asns by hand inverts conclusions."""
         if asn is None and not prefix:
             raise ValueError("provide either asn or prefix")
         start, end = default_window(start, end, days=90)
@@ -424,12 +424,12 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
 
         Relationships are inferred provider->customer, Tier-1-anchored (~94% agreement
         with CAIDA). Peering is NOT inferred: `other_connections` are adjacencies we
-        observed but cannot classify — do not present them as confirmed peers. Results
+        observed but cannot classify. Do not present them as confirmed peers. Results
         reflect the requested date window; relationships change over time.
 
-        This is the transit TOPOLOGY (who provides transit to whom). For observed USAGE —
-        which of those upstreams actually carry the network's routes and how lopsided that
-        is — use `path_diversity`; the two are complementary."""
+        This is the transit TOPOLOGY (who provides transit to whom). For observed USAGE,
+        which of those upstreams carry the network's routes and how lopsided that
+        is, use `path_diversity`. The two are complementary."""
         norm = normalize_asn(asn)
         start, end = default_window(start, end, days=30)
         resp = client.asn_relationships(norm, start_date=start, end_date=end)
@@ -477,27 +477,27 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         end: Optional[str] = None,
     ) -> dict:
         """How an origin's announcements FAN OUT through its upstreams toward our
-        collectors — the observed propagation / path-diversity tree, weighted by how
+        collectors: the observed propagation / path-diversity tree, weighted by how
         many vantage points take each branch.
 
         Built ONLY from real observed AS paths (no inference), so it answers with high
-        confidence: which upstreams actually carry this network's routes, and how
+        confidence: which upstreams carry this network's routes, and how
         lopsided that is. Each level-1 branch's `share` is the fraction of vantage points
         (of the `total_vantage_points` that see the origin) that reach it via that
         upstream, counted as DISTINCT collector+peer feeds. Shares are per-upstream
-        coverage, not a partition — a network reached through several upstreams will have
+        coverage, not a partition. A network reached through several upstreams will have
         several high shares, so they can sum past 1.0. One dominant upstream with the rest
         low = effectively single-threaded; several high shares = redundant transit.
         `is_tier1` marks where a branch reaches the Tier-1 core.
 
-        Pass `prefix` (a CIDR the ASN originates) to scope the tree to ONE prefix — useful
+        Pass `prefix` (a CIDR the ASN originates) to scope the tree to ONE prefix, useful
         for a MOAS prefix or to check a specific route's redundancy; the % then reflects
         just that prefix's paths.
 
         NOT a traceroute: this is the control-plane spread of routes across upstreams as
         seen from route collectors, not the data-plane path a packet takes (peering and
         IXP handoffs are invisible to collectors). `diverse=false` means the origin is
-        single-threaded or too thinly observed for a meaningful diversity view — read
+        single-threaded or too thinly observed for a meaningful diversity view; read
         `reason`. Default window is 14 days (current routing); widen it for more history."""
         norm = normalize_asn(asn)
         start, end = default_window(start, end, days=14)
@@ -528,7 +528,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         warnings = [
             warning(
                 "observed_not_traceroute",
-                "Control-plane route spread across upstreams as seen from collectors — "
+                "Control-plane route spread across upstreams as seen from collectors. "
                 "not a data-plane/traceroute path. Peering and IXP handoffs are not visible.",
             )
         ]
@@ -565,13 +565,13 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         meaning, from a dictionary harvested from operators' own IRR objects, NLNOG, and the
         IANA/RFC well-knowns.
 
-        Each result carries: `known` (false = no published definition — don't guess a meaning),
+        Each result carries: `known` (false means no published definition; do not guess a meaning),
         `category` (informational | action), `subtype` (geo | prepend | localpref | blackhole |
         no-export | relationship | …), `description`, optional geo, and the OWNER AS (the left
-        side) with its resolved name — which is useful even when the community itself is
+        side) with its resolved name, which is useful even when the community itself is
         unknown ("it's AS3356/Lumen's community"). `inferred=true` marks a meaning taken from a
         near-universal CONVENTION (e.g. any `:666`/`:9999` = blackhole) rather than something
-        the owner published — present those as conventional, not authoritative. `matched_by`
+        the owner published. Present those as conventional, not authoritative. `matched_by`
         shows the wildcard pattern that matched, when it wasn't an exact literal."""
         cleaned = [c.strip() for c in (communities or []) if c and c.strip()]
         if not cleaned:
@@ -626,7 +626,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         """Baseline (window_a) vs event (window_b) for a target. Each window is
         {from, to}. `dimension=volume` compares totals; origin/collector compares the
         per-group breakdown so a new origin or a shifted collector mix is obvious.
-        (upstream/paths comparison is not available via the rollup — use `paths`.)"""
+        (upstream/paths comparison is not available via the rollup; use `paths`.)"""
         kind, value = parse_target(target)
         gb = None if dimension == "volume" else dimension
 
@@ -675,7 +675,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         asn: Optional[int] = None,
         prefix: Optional[str] = None,
     ) -> dict:
-        """Facility/IX intersection across an entity's upstreams — routing-only
+        """Facility/IX intersection across an entity's upstreams: routing-only
         geolocation. Finds cities common to all upstreams' PeeringDB presence, which
         is far more reliable than GeoIP for leased/anycast space. Give a prefix (or an
         ASN, whose top prefix is used to derive upstreams)."""
@@ -750,7 +750,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         end: Optional[str] = None,
     ) -> dict:
         """Announced more-specifics inside a block, plus an estimate of unrouted
-        space — allocated addresses never seen in the table, the easiest kind to
+        space: allocated addresses never seen in the table, the easiest kind to
         announce unnoticed."""
         start, end = default_window(start, end, days=30)
         resp = client.prefix_subprefixes(prefix, start_date=start, end_date=end)
@@ -782,7 +782,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         collector_id: Optional[str] = None,
         event_type: Optional[Literal["announcement", "withdrawal"]] = None,
     ) -> dict:
-        """Bounded raw events for a NARROW window — last resort. Capped at 500 events;
+        """Bounded raw events for a NARROW window. Use it last. Capped at 500 events;
         rejects windows over ~24h. Use only after timeline/reachability/origin_history
         have localised what you need to see at the message level."""
         import datetime as _dt
@@ -842,7 +842,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
     ) -> dict:
         """Is today unusual, platform-wide? Aggregates recent anomalous detections so
         you can tell an ordinary busy day from a real event. Call this BEFORE
-        describing anything as anomalous — an apparent spike is often just the
+        describing anything as anomalous. An apparent spike is often just the
         platform's normal volume."""
         start, end = window_from_shorthand(window, default_days=14)
         resp = client.detections_search(
@@ -878,15 +878,15 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
     ) -> dict:
         """What potentially notable BGP events are happening across the internet
         right now? Returns a scored feed of one network announcing address space
-        that another network normally originates — the shape of a hijack or a
-        route leak. Events are ranked so the ones worth a human's attention float
-        up: a more prominent victim network, more corroborating detectors, and
+        that another network normally originates, which is what a hijack or route
+        leak looks like. Events are ranked so the ones worth a human's attention
+        float up: a more prominent victim network, more corroborating detectors, and
         more affected prefixes raise the score, while likely leaks (the two
         networks are related) and shared/leased address space are pushed down.
 
         These are LEADS, not verdicts. Relationship inference is imperfect, so an
-        event can be flagged when the two parties are actually the same operator.
-        Investigate before describing anything as a confirmed hijack — `identify`
+        event can be flagged when the two parties are the same operator.
+        Investigate before describing anything as a confirmed hijack: `identify`
         the two ASNs and pull the affected prefix's history. `hours` is the
         lookback (≤168), `limit` the number of events (≤100)."""
         data = client.notable_events(window_hours=hours, limit=limit)

@@ -2,7 +2,7 @@
 
 Design rule (see docs/mcp/SERVER-DESIGN.md): every tool response carries
 ``warnings[]`` and ``meta`` so a model cannot silently misread the data. The
-warning codes here are the highest-leverage part of the whole server.
+warning codes here do more to keep a model honest than anything else here.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-# Connecting an LLM to the BGPHorizon MCP Server
+# Connecting an LLM to the BGPHorizon MCP server
 
 How to register `bgphorizon-mcp` with each major client. Pick your client, copy
 the config, restart, verify.
@@ -9,52 +9,47 @@ expects it in the environment as `BGPHORIZON_API_KEY`.
 ---
 
 The server is a Python package (FastMCP). The easiest path uses
-[uv](https://docs.astral.sh/uv/), which fetches and runs it on demand — no manual
+[uv](https://docs.astral.sh/uv/), which fetches and runs it on demand, with no manual
 install step, the Python equivalent of `npx`.
 
 ## Install
 
-### uvx (recommended — zero install)
+Two ways to use it. The hosted endpoint needs no install at all and is covered
+under [Hosted](#hosted-endpoint) below; this section is for running it yourself.
+
+### From source
 ```bash
 # one-time: install uv if you don't have it
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-export BGPHORIZON_API_KEY=bgps_xxx
-uvx bgphorizon-mcp --version        # fetches + runs; nothing installed globally
-```
-
-### As a persistent tool
-```bash
-uv tool install bgphorizon-mcp      # or: pipx install bgphorizon-mcp
-bgphorizon-mcp --version
-```
-
-### From source
-```bash
-git clone https://github.com/bgphorizon/bgphorizon-mcp && cd bgphorizon-mcp
+git clone https://github.com/bgphorizon/bgphorizon-mcp.git && cd bgphorizon-mcp
 uv sync
 uv run bgphorizon-mcp --version
-```
-
-### Docker
-```bash
-docker run -i --rm -e BGPHORIZON_API_KEY ghcr.io/bgphorizon/bgphorizon-mcp:latest
 ```
 
 ### Verify before wiring it to anything
 ```bash
 export BGPHORIZON_API_KEY=bgps_xxx
-uvx bgphorizon-mcp --selftest
-# ✓ API reachable   ✓ key valid   ✓ 22 tools   ✓ 8 resources   ✓ 8 prompts
+uv run bgphorizon-mcp --selftest
+# ✓ API reachable   ✓ key valid   ✓ 22 tools   ✓ 9 resources   ✓ 8 prompts
 ```
+
+One line per check, so a wrong key or an unreachable API shows up here rather
+than as a silent failure inside a client.
+
+### Package installs, once it is on PyPI
+Not published yet. When it is, `uvx bgphorizon-mcp` will fetch and run it with
+nothing installed globally, and `uv tool install bgphorizon-mcp` or
+`pipx install bgphorizon-mcp` will install it as a command. Until then, use the
+source install above or the hosted endpoint.
 
 ---
 
-## Transport: which one do I need?
+## Choosing a transport
 
 | Transport | Use for | Flag |
 |---|---|---|
-| **stdio** | Local clients — Claude Code, Claude Desktop, Gemini CLI, Cursor, Zed | default |
+| **stdio** | Local clients: Claude Code, Claude Desktop, Gemini CLI, Cursor, Zed | default |
 | **HTTP** | Hosted agents, OpenAI Agents SDK, shared team servers, n8n | `--transport http --port 8931` |
 
 Start with stdio. Move to HTTP only when something remote needs to reach it.
@@ -68,11 +63,11 @@ Start with stdio. Move to HTTP only when something remote needs to reach it.
 ```bash
 claude mcp add bgphorizon \
   --env BGPHORIZON_API_KEY=bgps_xxx \
-  -- uvx bgphorizon-mcp
+  -- uv run --directory /path/to/bgphorizon-mcp bgphorizon-mcp
 ```
 
-(Drop the `uvx` prefix — just `-- bgphorizon-mcp` — if you installed it with
-`uv tool install` / `pipx`.)
+(Drop the `uvx` prefix, using just `-- bgphorizon-mcp`, if you installed it with
+`uv tool install` / `pipx` once it is published.)
 
 Add `--scope project` to commit it to `.mcp.json` for the whole team, or
 `--scope user` to make it available in every project.
@@ -93,7 +88,7 @@ Add `--scope project` to commit it to `.mcp.json` for the whole team, or
 }
 ```
 
-**Verify:** run `/mcp` — `bgphorizon` should appear as connected with its tool
+**Verify:** run `/mcp`. `bgphorizon` should appear as connected with its tool
 count. Then:
 
 ```
@@ -109,9 +104,9 @@ Prompts surface as slash commands: `/bgphorizon:audit_my_network`,
 
 Edit `claude_desktop_config.json`:
 
-- macOS — `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows — `%APPDATA%\Claude\claude_desktop_config.json`
-- Linux — `~/.config/Claude/claude_desktop_config.json`
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+- Linux: `~/.config/Claude/claude_desktop_config.json`
 
 ```json
 {
@@ -128,7 +123,7 @@ Restart Claude Desktop fully (quit, don't just close the window). The tools appe
 under the connector icon in the composer.
 
 > Use an absolute path (`/usr/local/bin/bgphorizon-mcp`) if the binary isn't on
-> the GUI app's `PATH` — the most common cause of a server that silently fails to
+> the GUI app's `PATH`, the most common cause of a server that silently fails to
 > start on macOS.
 
 ---
@@ -211,7 +206,7 @@ console.log((await run(agent, "Audit AS21799.")).finalOutput);
 await server.close();
 ```
 
-### Responses API — hosted MCP
+### Responses API (hosted MCP)
 
 Requires the HTTP transport on a publicly reachable URL.
 
@@ -240,17 +235,17 @@ print(resp.output_text)
 
 ## Other clients
 
-**Cursor** — `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global), same
+**Cursor**: `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global), same
 `mcpServers` shape as Claude Desktop.
 
-**Zed** — `settings.json` under `context_servers`:
+**Zed**: `settings.json` under `context_servers`:
 ```json
 { "context_servers": { "bgphorizon": {
     "command": { "path": "bgphorizon-mcp", "args": [] },
     "env": { "BGPHORIZON_API_KEY": "bgps_xxx" } } } }
 ```
 
-**VS Code / Copilot** — `.vscode/mcp.json`:
+**VS Code / Copilot**: `.vscode/mcp.json`:
 ```json
 { "servers": { "bgphorizon": { "type": "stdio", "command": "bgphorizon-mcp",
     "env": { "BGPHORIZON_API_KEY": "${input:bgph_key}" } } },
@@ -258,7 +253,7 @@ print(resp.output_text)
                "description": "BGPHorizon API key", "password": true }] }
 ```
 
-**LangChain / LangGraph** — via `langchain-mcp-adapters`:
+**LangChain / LangGraph**: via `langchain-mcp-adapters`:
 ```python
 from langchain_mcp_adapters.client import MultiServerMCPClient
 client = MultiServerMCPClient({"bgphorizon": {
@@ -267,7 +262,7 @@ client = MultiServerMCPClient({"bgphorizon": {
 tools = await client.get_tools()
 ```
 
-**n8n / Make / Zapier** — use HTTP transport and point the MCP Client node at
+**n8n / Make / Zapier**: use HTTP transport and point the MCP Client node at
 `https://…/mcp` with a bearer token.
 
 ---
@@ -291,7 +286,7 @@ location /mcp {
 }
 ```
 
-`proxy_buffering off` is not optional — with it on, streamed responses arrive only
+`proxy_buffering off` is required. With it on, streamed responses arrive only
 after the request completes, which looks exactly like a hung server.
 
 ---
@@ -303,11 +298,14 @@ The end-to-end path for someone with no prior context:
 ```bash
 # 1. install uv + verify the server
 curl -LsSf https://astral.sh/uv/install.sh | sh
+git clone https://github.com/bgphorizon/bgphorizon-mcp.git && cd bgphorizon-mcp
+uv sync
 export BGPHORIZON_API_KEY=bgps_xxx
-uvx bgphorizon-mcp --selftest
+uv run bgphorizon-mcp --selftest
 
 # 2. register with Claude Code
-claude mcp add bgphorizon --env BGPHORIZON_API_KEY=$BGPHORIZON_API_KEY -- uvx bgphorizon-mcp
+claude mcp add bgphorizon --env BGPHORIZON_API_KEY=$BGPHORIZON_API_KEY \
+  -- uv run --directory "$PWD" bgphorizon-mcp
 
 # 3. give the model the methodology
 mkdir -p .claude && cp reporting/SYSTEM-PROMPT.md .claude/CLAUDE.md
@@ -317,7 +315,7 @@ claude "/bgphorizon:write_report AS54994 over the last 60 days"
 ```
 
 Step 3 is the one people skip, and it is the one that determines output quality.
-The tools supply data; the system prompt supplies the method — including the two
+The tools supply data; the system prompt supplies the method, including the two
 checks (persistence, and vantage-point attribution) that prevent the specific
 errors documented in [`../reporting/METHODOLOGY.md`](../reporting/METHODOLOGY.md).
 

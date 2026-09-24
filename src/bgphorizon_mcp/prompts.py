@@ -1,4 +1,4 @@
-"""Prompts (8) — where methodology lives.
+"""Prompts (8). The methodology lives here.
 
 Prompts embed the house procedure so a model that has never seen BGP data
 produces correct, house-style output without the user pasting instructions. The
@@ -16,11 +16,31 @@ _GUARDRAILS = """\
 Two checks are mandatory before any conclusion:
 - PERSISTENCE: classify every prefix (persistent / intermittent / transient) with \
 `inventory` or `origin_history` before calling anything a migration or handover. A \
-prefix present on a handful of days is transient — say so.
+prefix present on a handful of days is transient. Say so.
 - ATTRIBUTION: read the `concentration` / `single_vantage_point` warnings; run \
 `platform_baseline` before describing anything as anomalous. A spike from one \
 collector peer is a measurement artifact.
 Read the `warnings[]` on every response and reflect them in the write-up."""
+
+_STYLE = """\
+Style. The write-up uses the platform's own plain register; the test is whether a \
+network engineer would believe a colleague wrote it.
+- One idea per sentence, but vary the length: a run of sentences all the same \
+length reads as generated. Lead with the finding.
+- Answer, never narrate. Do not restate the question before answering it, and do \
+not announce what a section is about to do.
+- Let confidence track the evidence: state a firm finding flatly and an unknown \
+flatly. Hedging everything to the same degree is the giveaway.
+- Never use an em-dash. Never write "not X but Y" or "it's not X, it's Y".
+- No filler or editorial adverbs: "actually", "really", "simply", "notably", \
+"importantly", "it's worth noting", "keep in mind".
+- No "why this matters", "key takeaways" or "in summary" sections, and no section \
+ends with a summary paragraph.
+- Headings and titles in sentence case, literal and complete ("Reachability during \
+the outage"). No puns, teasers, fragments or questions.
+- No marketing or color words: "deep dive", "leverage", "robust", "comprehensive", \
+"landscape", "classic", "textbook", "red flag", "smoking gun".
+- Numbers carry a denominator. Observation and inference are marked as such."""
 
 
 def register_prompts(mcp: FastMCP) -> None:
@@ -30,24 +50,25 @@ def register_prompts(mcp: FastMCP) -> None:
     @mcp.prompt(
         name="investigate_entity",
         title="Investigate an ASN or prefix",
-        description="Full workup of an ASN or prefix — findings only, no prose report.",
+        description="Full workup of an ASN or prefix. Findings only, no prose report.",
     )
     def investigate_entity(entity: str, window: str = "90d") -> str:
         return f"""Investigate {entity} over the last {window} and return findings only \
 (not a formatted report).
 
 Suggested path (adapt as evidence dictates):
-1. `identify` — who is this? Registry, RPKI, IRR, PeeringDB.
-2. `detections` — platform findings, read the `direction` field to see whether the \
+1. `identify`: registry, RPKI, IRR, PeeringDB.
+2. `detections`: platform findings. Read the `direction` field to see whether the \
 entity is the offending or the rightful party.
-3. For any contested prefix, `origin_history` — day-by-day origins and classified \
+3. For any contested prefix, `origin_history`: day-by-day origins and classified \
 transitions. This is where a handover is confirmed or a blip is dismissed.
 4. `identify` any counterpart ASNs/prefixes that surface.
-5. `timeline` / `paths` only if volume or transit structure is part of the story.
+5. `timeline` / `paths` only if volume or transit structure is part of the finding.
 
 {_GUARDRAILS}
 
-Output a concise findings list: each finding with its evidence and a confidence note."""
+Output a concise findings list: each finding with its evidence and a confidence note. \
+Plain sentences, no em-dashes, no "not X but Y", no editorial adverbs."""
 
     @mcp.prompt(
         name="alert_report",
@@ -59,24 +80,26 @@ Output a concise findings list: each finding with its evidence and a confidence 
         return f"""Pull the alerts my monitors fired over: {window}, and write them up.{scope}
 
 Path:
-1. `my_alerts(window="{window}")` — this is the whole input. It returns the alerts \
+1. `my_alerts(window="{window}")`. This is the whole input. It returns the alerts \
 plus totals by detection type, severity and monitor.
 2. If the volume is dominated by one monitor or one detection type, call \
 `my_monitors(window="{window}")` to say what was under watch and which watches are noisy.
 3. Investigate only what the alerts justify: `detections` or `origin_history` on the \
-specific prefixes that fired something anomalous. Do not sweep the platform — this is a \
+specific prefixes that fired something anomalous. Do not sweep the platform; this is a \
 report about MY monitoring, not global routing.
 
 Rules for this write-up:
 - Lead with the totals and the window, stated as absolute times from `meta.window`.
 - Separate SECURITY findings (RPKI invalid, MOAS, new origin, path anomalies) from \
 INFORMATIONAL churn (ROA/IRR changes, unregistered routes, new prefixes). A window that \
-is all informational is a quiet period — say so; do not dress it up.
+is all informational is a quiet period. Say so.
 - Attribute volume before generalising: if one monitor produced most alerts, name it.
 - If `warnings[]` says the result was truncated, say the per-alert detail is partial.
 - If nothing fired, the report is one short paragraph saying so. That is a valid result.
 
-{_GUARDRAILS}"""
+{_GUARDRAILS}
+
+{_STYLE}"""
 
     @mcp.prompt(
         name="write_report",
@@ -86,34 +109,63 @@ is all informational is a quiet period — say so; do not dress it up.
     def write_report(entity: str, window: str = "60d") -> str:
         return f"""Write a complete BGP routing report on {entity} covering the last {window}.
 
-If a `reporting/` directory is available on disk (you cloned the repo — the
+STEP 0. Before any tool call, ask the caller this and then STOP and wait for a \
+reply. Do not answer it yourself, do not assume, and do not start the \
+investigation until they have answered:
+
+    This tool wants me to ask you the following question:
+
+    Would you like me to run all of my findings by you for confirmation and
+    research before I put the report together?
+
+Their answer decides the shape of the work:
+
+- YES: gather the evidence, then stop and walk them through what you found
+  BEFORE writing a line of the report. Number the findings, give the evidence
+  and your confidence for each, and name what you could not determine. Then wait
+  again. Answer their questions, run the extra lookups they ask for, and correct
+  anything they contradict. A person who knows the network usually knows why a
+  prefix moved, and that is worth more than another query. Only write the report
+  once they are done. If their input changed a conclusion, the report carries
+  the correction rather than quietly presenting the corrected version.
+- NO: run straight through to the finished report.
+
+Anything other than a clear no means yes. The point of the checkpoint is that
+the person whose name is on the report understands it before it goes out.
+
+If a `reporting/` directory is available on disk (you cloned the repo, the
 recommended setup), use it as the source of truth: read `reporting/WRITING-GUIDE.md`
 and `reporting/QA-CHECKLIST.md`, build from `reporting/TEMPLATE.html` +
 `reporting/template-assets/report.css`, and run `reporting/build-report.sh` to inline
 the CSS, validate the HTML, and render the PDF/PNG. Otherwise, use the equivalent MCP
-resources below — they carry the same content.
+resources below. They carry the same content.
 
-Procedure:
+Procedure (step 0 above comes first and gates all of it):
 1. Read the standards first: `bgphorizon://reference/writing-guide`,
    `bgphorizon://reference/qa-checklist`, `bgphorizon://reference/methodology`,
    `bgphorizon://reference/data-horizon`, `bgphorizon://reference/detection-types`,
    `bgphorizon://reference/glossary`.
 2. Do the full `investigate_entity` workup to gather evidence.
-3. Fetch `bgphorizon://reference/report-template` — the house CSS is **already inlined**,
+2a. If they asked to review first: present the numbered findings and WAIT. Do not
+   continue to step 3 until they have said they are done.
+3. Fetch `bgphorizon://reference/report-template`. The CSS is **already inlined**,
    so use those styles as-is; do NOT write substitute CSS. Replace every
    {{{{PLACEHOLDER}}}}, delete unused component blocks, keep it valid self-contained HTML.
 4. Before finishing, work the QA checklist end to end.
 
 Rules for the write-up:
 {_GUARDRAILS}
-- Follow the writing guide's voice rules — especially the "avoid" table (watch em-dash
-  density and "not X but Y"; both read as generated prose).
+- Follow the writing guide's "Banned" table without exception. If `reporting/` is on
+  disk, `reporting/build-report.sh` runs `style-lint.py` and fails the build on an
+  em-dash, a "not X but Y" or a banned word; fix the text rather than the lint.
 - Mark observation vs inference explicitly; if your analysis changed mid-investigation,
   record the reversal in a correction block rather than hiding it.
 - Lead with the defensible conclusion, then the evidence chain. Every claim traces to a
-  specific tool result — never pattern-match off numerals without a lookup, and use
+  specific tool result. Never pattern-match off numerals without a lookup, and use
   complete per-type queries (not a capped page) for any count you state.
-- Respect the template's colour semantics. Use the glossary's plain-language level."""
+- Respect the template's color semantics. Use the glossary's plain-language level.
+
+{_STYLE}"""
 
     @mcp.prompt(
         name="triage_incident",
@@ -125,11 +177,11 @@ Rules for the write-up:
         return f"""Triage {prefix} {window}. Decide: real routing event, measurement \
 artifact, or nothing worth escalating.
 
-1. `platform_baseline` first — is the platform unusually busy right now? If the day is \
+1. `platform_baseline` first: is the platform unusually busy right now? If the day is \
 ordinary, an apparent spike may be nothing.
-2. `detections(prefix=...)` — what fired, what severity, is it anomalous or steady?
-3. `origin_history` — did the origin actually change, or is this one collector's blip?
-4. `reachability` (tight window) only if impact is in question — quantify how many \
+2. `detections(prefix=...)`: what fired, what severity, anomalous or steady?
+3. `origin_history`: did the origin change, or is this one collector's blip?
+4. `reachability` (tight window) only if impact is in question. Quantify how many \
 peers lost the route and for how long.
 
 {_GUARDRAILS}
@@ -145,8 +197,8 @@ of evidence for it."""
     def locate_infrastructure(entity: str) -> str:
         return f"""Locate the infrastructure behind {entity} using routing evidence.
 
-1. `locate` — facility/IX intersection across the upstreams' PeeringDB presence.
-2. `paths` — confirm the upstream set and look for a single dominant transit that \
+1. `locate`: facility/IX intersection across the upstreams' PeeringDB presence.
+2. `paths`: confirm the upstream set and look for a single dominant transit that \
 anchors the location.
 3. `identify` the upstreams to sanity-check they are regional, not global anycast \
 transit.
@@ -161,15 +213,15 @@ guessing."""
     @mcp.prompt(
         name="audit_my_network",
         title="Audit my network",
-        description="Hygiene report for your ASN with a prioritised remediation list.",
+        description="Hygiene report for your ASN with a prioritized remediation list.",
     )
     def audit_my_network(asn: str, window: str = "30d") -> str:
         return f"""Audit AS{asn.lstrip('AS').lstrip('as')} over the last {window} and produce a \
-prioritised remediation list a network engineer can act on.
+prioritized remediation list a network engineer can act on.
 
-1. `health_check(asn=...)` — this is the audit: RPKI/IRR coverage, MOAS, ROA \
+1. `health_check(asn=...)`. This is the audit: RPKI/IRR coverage, MOAS, ROA \
 max-length exposure, transit diversity, visibility, unrouted space.
-2. `path_diversity(asn=...)` — is transit actually redundant, or does most of the \
+2. `path_diversity(asn=...)`: is transit redundant, or does most of the \
 internet reach this network through a single upstream? A dominant branch near 100% \
 is a single-point-of-failure worth flagging even when two upstreams are configured. \
 Scope to a critical prefix with `prefix=...` to check that route specifically.
@@ -177,9 +229,11 @@ Scope to a critical prefix with `prefix=...` to check that route specifically.
 `validate_announcement` to confirm what a fix would need.
 
 Present findings ordered by severity (high → low). For each: what is wrong, which \
-prefixes, why it matters operationally, and the exact remediation. No BGP jargon \
-without a plain-language gloss — the reader may not be a routing specialist. End with \
-the top three actions in priority order."""
+prefixes, the operational consequence, and the exact remediation. No BGP jargon \
+without a plain-language gloss; the reader may not be a routing specialist. End with \
+the top three actions in priority order.
+
+{_STYLE}"""
 
     @mcp.prompt(
         name="preflight_change",
@@ -189,7 +243,7 @@ the top three actions in priority order."""
     def preflight_change(prefix: str, origin_asn: str) -> str:
         return f"""Pre-flight announcing {prefix} from AS{origin_asn.lstrip('AS').lstrip('as')}.
 
-1. `validate_announcement(prefix=..., origin_asn=...)` — RPKI validity and max-length, \
+1. `validate_announcement(prefix=..., origin_asn=...)`: RPKI validity and max-length, \
 IRR route objects, who announces it today, and whether the space was recently \
 transferred (old ROAs linger).
 2. If blocked or warned, explain precisely what must change first (create a ROA, \
@@ -214,9 +268,11 @@ window) to quantify impact.
 Then write 3–5 short paragraphs, no jargon:
 - What happened, in one sentence.
 - Impact framing: roughly how much of the internet lost reachability, and for how \
-long (use the reachability outage windows — "2,289 withdrawals" is NOT impact).
-- Whether anyone else was affected, and whether it looks deliberate or accidental — \
+long (use the reachability outage windows; "2,289 withdrawals" is not impact).
+- Whether anyone else was affected, and whether it looks deliberate or accidental, \
 only if the evidence supports it.
 - What is being done / what the reader should do.
 
-Do not speculate beyond the evidence. If impact was negligible, say so plainly."""
+Do not speculate beyond the evidence. If impact was negligible, say so plainly.
+
+{_STYLE}"""

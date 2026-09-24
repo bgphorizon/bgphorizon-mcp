@@ -1,6 +1,6 @@
 """Read-only reference resources (5).
 
-Reference data belongs in resources, not in every model's system prompt — a
+Reference data belongs in resources, not in every model's system prompt. A
 connecting model can pull these without spending a tool call. Content is bundled
 as package data so the server stays self-contained when forked.
 """
@@ -62,7 +62,7 @@ def register_resources(mcp: FastMCP, client: BGPHorizonClient) -> None:
         "bgphorizon://reference/report-template",
         name="Report template",
         description="The house HTML report skeleton, with the real house CSS already "
-        "inlined — use it as-is, do not write substitute styles.",
+        "inlined. Use it as-is; do not write substitute styles.",
         mime_type="text/html",
     )
     def report_template() -> str:
@@ -88,16 +88,26 @@ def register_resources(mcp: FastMCP, client: BGPHorizonClient) -> None:
         "bgphorizon://reference/qa-checklist",
         name="Report QA checklist",
         description="The pre-publication pass every report must clear (claims trace to "
-        "evidence, colour semantics, no unverified pattern-matching, live-badge accuracy).",
+        "evidence, color semantics, no unverified pattern-matching, live-badge accuracy).",
         mime_type="text/markdown",
     )
     def qa_checklist() -> str:
         return _read("qa_checklist.md")
 
     @mcp.resource(
+        "bgphorizon://reference/report-examples",
+        name="Report worked examples",
+        description="Published reports with the error each one caught in review: what the draft "
+                    "said, what the data actually showed, and the check that found it.",
+        mime_type="text/markdown",
+    )
+    def report_examples() -> str:
+        return _read("examples.md")
+
+    @mcp.resource(
         "bgphorizon://reference/methodology",
         name="Report methodology",
-        description="The investigation procedure — evidence order and the checks that "
+        description="The investigation procedure: evidence order and the checks that "
         "keep conclusions defensible.",
         mime_type="text/markdown",
     )

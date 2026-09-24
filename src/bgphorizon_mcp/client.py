@@ -1,6 +1,6 @@
 """HTTP client for the BGPHorizon public ``/api/v1`` gateway.
 
-The MCP server never talks to the internal ``bgp-api-go`` directly — it goes
+The MCP server never talks to the internal ``bgp-api-go`` directly. It goes
 through the same public, key-authenticated, metered, tier-gated surface that any
 API user hits. That keeps the server thin and means quota/entitlement limits
 surface here as structured errors the model can explain rather than retry blindly.
