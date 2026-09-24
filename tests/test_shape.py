@@ -130,3 +130,56 @@ def test_irr_objects_flags_stale_origin():
     by_asn = {o["origin_as"]: o for o in objs}
     assert "stale" not in by_asn[13335]
     assert by_asn[5693].get("stale") is True
+
+
+# -- M21 helpers ---------------------------------------------------------------
+
+def test_string_warnings_become_dicts():
+    ws = common.normalize_warnings([
+        "window_start_censored: first_seen is censored",
+        {"code": "x", "message": "y"},
+        "free text with spaces: no code",
+    ])
+    assert ws[0] == {"code": "window_start_censored", "message": "first_seen is censored"}
+    assert ws[1]["code"] == "x"
+    assert ws[2]["code"] == "api_warning"
+
+
+def test_parse_when_dates_and_timestamps():
+    assert common.rfc3339(common.parse_when("2026-09-20")) == "2026-09-20T00:00:00Z"
+    assert common.rfc3339(common.parse_when("2026-09-20", end_of_day=True)) == "2026-09-20T23:59:59Z"
+    assert common.rfc3339(common.parse_when("2026-09-20T10:03:12Z")) == "2026-09-20T10:03:12Z"
+
+
+def test_rir_from_rdap_server():
+    assert _shape.rir_from_rdap({"rdap_server": "https://rdap.db.ripe.net/"}) == "RIPE NCC"
+    assert _shape.rir_from_rdap({"RDAPServer": "https://rdap.afrinic.net/rdap/"}) == "AFRINIC"
+    assert _shape.rir_from_rdap({}) is None
+
+
+def test_details_parsed_and_summary_counts():
+    incs = [
+        {"detection_type": "moas_conflict", "direction": "queried_entity_is_invalid_party",
+         "first_seen": "2026-09-20T10:03:12Z", "prefix": "81.28.32.0", "prefix_len": 23,
+         "baseline_asns": [25306], "peer_count": 206, "details": '{"origin":197207}'},
+        {"detection_type": "moas_conflict", "direction": "queried_entity_is_invalid_party",
+         "first_seen": "2026-09-20T09:56:25Z", "prefix": "152.89.12.0", "prefix_len": 24,
+         "baseline_asns": [12660], "peer_count": 48, "details": "{}"},
+    ]
+    for i in incs:
+        _shape.parse_details(i)
+    assert incs[0]["details"] == {"origin": 197207}
+    s = _shape.detections_summary(incs)
+    assert s["by_type_and_direction"]["moas_conflict"]["queried_entity_is_invalid_party"] == 2
+    assert s["opened_by_hour"] == {"2026-09-20T09": 1, "2026-09-20T10": 1}
+    assert s["distinct_prefixes"] == 2 and s["distinct_baseline_asns"] == 2
+    assert s["peer_count"]["max"] == 206
+
+
+def test_deleted_irr_objects_are_not_current():
+    import datetime as dt
+    now = dt.datetime.now(dt.timezone.utc)
+    live = {"origin_as": 42990, "source": "RIPE", "timestamp": now.isoformat()}
+    gone = {"origin_as": 37358, "source": "RADB", "timestamp": "2023-07-19T00:00:00Z"}
+    objs = _shape.irr_objects({"records": [live, gone]}, set())
+    assert [o["current"] for o in objs] == [True, False]

@@ -103,6 +103,21 @@ In the AS54994 report the invalid party was the *court*, not the CDN. The patter
 read as "CDN takes government space"; the evidence said the opposite. Getting this
 backwards inverts an entire report.
 
+### 8. Scope an incident caused by one network
+
+When one network announced other networks' space for a short time, start from
+`origin_episode(asn, start, end)` rather than diffing inventories by hand. It
+returns what was new against the weeks before and the days after, whose space it
+was, the conflict count, the carriers and the first and last announcement. Then
+`origin_reach` on a few of its prefixes for the propagation curve: separate humps
+are separate phases, and the peak share of full-table feeds is the "max
+propagation" figure other monitors quote.
+
+When another monitor has published figures for the same event, reproduce them
+from the episode or explain the difference in method. A conflict count that
+includes prefixes covered by a leaked /8 is a different measure from a count of
+exact-prefix conflicts.
+
 ---
 
 ## Geolocating infrastructure
@@ -128,9 +143,9 @@ Frankfurt" is not.
 
 ---
 
-## Two errors made in real reports
+## Three errors made in real reports
 
-Both survived until an explicit verification pass. Both are now steps in the
+Each survived until an explicit verification pass. Each is now a step in the
 procedure above.
 
 ### Error 1: mistaking transience for migration
@@ -166,11 +181,28 @@ the same second. A flapping collector session, not routing.
 
 **Prevention.** Step 4. Check concentration before reporting volume.
 
+### Error 3: treating the leaking network as the victim
+
+**What happened.** A detections lookup on AS197207 three days after it leaked
+419 prefixes (including `102.0.0.0/8` for about five minutes) returned incidents
+in which AfriNIC-region networks announced new /22s "carved out of" AS197207's
+space. They read as other networks hijacking AS197207.
+
+**Why it was wrong.** AS197207 never held 102.0.0.0/8. The detector treated
+whoever had ever announced a covering block as its holder, so the five-minute
+leak made AS197207 the holder of everything under it. The fix requires a holder
+to have announced the block for at least a day, and ignores default routes and
+blocks shorter than /8, but older incidents may still carry the artifact.
+
+**Prevention.** Step 7, plus a check: when the queried network shows up as the
+victim of many unrelated networks in space it does not normally announce,
+confirm it held the covering block with `origin_history` before reporting it.
+
 ---
 
 ## Verification pass
 
-Never publish without one. Both errors above were caught here, not during
+Never publish without one. The errors above were caught here, not during
 research. See [`QA-CHECKLIST.md`](QA-CHECKLIST.md).
 
 The minimum: **every number in the output must trace to a specific call, and be

@@ -15,7 +15,7 @@ anything produces the same document.
 
 | | Hosted (`https://bgphorizon.com/mcp`) | Clone of this repo |
 |---|---|---|
-| 22 investigation tools | yes | yes |
+| 25 tools | yes | yes |
 | `write_report` prompt (full procedure, asks whether to review findings first) | yes | yes |
 | Writing guide, QA checklist, methodology, worked examples | yes, as resources | yes, on disk |
 | Report template with the house CSS inlined | yes | yes |
@@ -62,7 +62,7 @@ renders the PDF and PNG.
    connected client through the server's instructions, so this is reinforcement
    for a long-running agent rather than a missing piece.
 
-The model uses the 22 tools to gather evidence and the bundled
+The model uses the 25 tools to gather evidence and the bundled
 `report-template` resource to produce a single self-contained HTML file.
 
 Before it starts, `write_report` has the model ask whether you want to review

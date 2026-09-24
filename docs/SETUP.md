@@ -31,7 +31,7 @@ uv run bgphorizon-mcp --version
 ```bash
 export BGPHORIZON_API_KEY=bgps_xxx
 uv run bgphorizon-mcp --selftest
-# ✓ API reachable   ✓ key valid   ✓ 22 tools   ✓ 9 resources   ✓ 8 prompts
+# ✓ API reachable   ✓ key valid   ✓ 25 tools   ✓ 9 resources   ✓ 8 prompts
 ```
 
 One line per check, so a wrong key or an unreachable API shows up here rather

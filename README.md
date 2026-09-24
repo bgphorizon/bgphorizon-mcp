@@ -4,7 +4,7 @@ An [MCP](https://modelcontextprotocol.io) server that exposes **BGPHorizon**
 BGP routing data to any MCP-capable LLM client (Claude Code,
 Claude Desktop, Cursor, Gemini CLI, OpenAI Agents, …).
 
-It is not a thin wrapper over the REST API. The surface is **22 task-shaped
+It is not a thin wrapper over the REST API. The surface is **25 task-shaped
 tools** built around the operations investigators and operators perform,
 each returning aggregates plus `warnings[]` so a model cannot silently misread the
 data (persistence, single-vantage-point concentration, censored `first_seen`, …).
@@ -25,7 +25,7 @@ panel), passed as `BGPHORIZON_API_KEY`.
 git clone https://github.com/bgphorizon/bgphorizon-mcp.git && cd bgphorizon-mcp
 uv sync
 export BGPHORIZON_API_KEY=bgps_xxx
-uv run bgphorizon-mcp --selftest   # ✓ API reachable ✓ key valid ✓ 22 tools ✓ 9 resources ✓ 8 prompts
+uv run bgphorizon-mcp --selftest   # ✓ API reachable ✓ key valid ✓ 25 tools ✓ 9 resources ✓ 8 prompts
 ```
 
 The selftest prints a line per check, so a wrong key or an unreachable API shows
@@ -95,10 +95,10 @@ OpenAI Agents SDK, LangChain, n8n, VS Code) and reverse-proxy config.
 
 ## What's in the box
 
-**Investigation tools (17):** `identify`, `inventory`, `timeline`,
+**Investigation tools (20):** `identify`, `inventory`, `timeline`,
 `origin_history`, `reachability`, `global_reach`, `detections`, `paths`, `relationships`,
 `path_diversity`, `translate_communities`, `compare_windows`, `locate`, `subprefixes`, `events_sample`,
-`platform_baseline`, `notable_events`.
+`platform_baseline`, `notable_events`, `origin_episode`, `origin_reach`, `bulk_registry`.
 
 **Operator tools (3):** `health_check`, `validate_announcement`, `visibility`.
 

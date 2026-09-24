@@ -2,7 +2,7 @@
 
 Twenty-two tools across three personas:
 
-- **Investigation** (17): analyzing a network you do not run
+- **Investigation** (20): analyzing a network you do not run
 - **Operator** (3): watching one you do
 - **Alerts** (2): reading your own monitoring, for reports
 
@@ -47,6 +47,11 @@ Set `include: ["whois"]` for RIPE/ARIN whois fields absent from RDAP;
 `org-type`, `address`, `phone`, `mnt-routes`, POC validation status. Those fields
 identified a shell entity in one report.
 
+
+The result also carries `country` (the registry record's country code) and `rir` (the
+registry that answered). IRR objects carry `last_seen` and `current`; an object no longer
+in the registry raises `irr_object_deleted`.
+
 ---
 
 ## `inventory`
@@ -57,23 +62,29 @@ What does this ASN announce, and does it stick?
 { "name": "inventory",
   "inputSchema": { "type": "object", "required": ["asn"], "properties": {
     "asn": { "type": "integer" },
-    "from": { "type": "string" }, "to": { "type": "string" },
+    "start": { "type": "string" }, "end": { "type": "string" },
     "classify": { "type": "boolean", "default": true },
-    "min_prefix_len": { "type": "integer", "description": "Filter out host routes, e.g. 24" } } } }
+    "min_prefix_len": { "type": "integer", "description": "Filter out host routes, e.g. 24" },
+    "only": { "enum": ["persistent","intermittent","transient"] },
+    "summary_only": { "type": "boolean", "default": false } } } }
 ```
 
 ```jsonc
-{ "asn": 54994, "totals": { "v4": 1272, "v6": 182, "addresses_v4": 291472 },
+{ "asn": 54994, "window": { "from": "2026-06-12", "to": "2026-08-11" },
+  "totals": { "v4": 1272, "v6": 182, "addresses_v4": 291472, "listed": 1454 },
+  "by_classification": { "persistent": 1180, "intermittent": 88, "transient": 186 },
   "length_distribution": { "22": 2, "23": 4, "24": 1122, "32": 144 },
   "prefixes": [ { "prefix": "153.43.254.0/24", "classification": "persistent",
-                  "days_present": 61, "days_in_window": 61, "origins": [54994] } ],
+                  "days_present": 61, "days_in_window": 61,
+                  "first_seen": "2026-06-12", "last_seen": "2026-08-11" } ],
   "warnings": [{ "code": "host_routes_present",
                  "message": "144 IPv4 /32 routes. Widely filtered; exclude from volume baselines." }] }
 ```
 
 `classification` is server-computed (`persistent` | `transient` | `intermittent`).
-**Models must not infer this from `first_seen`.**
-
+**Models must not infer this from `first_seen`.** Every row is originated by `asn`.
+For "what did it announce during an incident, compared with normal", use
+`origin_episode` rather than diffing two inventories.
 ---
 
 ## `timeline`
@@ -82,11 +93,12 @@ Counts over time. Replaces bulk event downloads.
 
 ```jsonc
 { "name": "timeline",
-  "inputSchema": { "type": "object", "required": ["target","from","to"], "properties": {
+  "inputSchema": { "type": "object", "required": ["target"], "properties": {
     "target": { "type": "string", "description": "asn:54994 or prefix:153.43.254.0/24" },
-    "from": { "type": "string" }, "to": { "type": "string" },
-    "granularity": { "enum": ["hour","day","week"], "default": "day" },
-    "group_by": { "enum": ["none","origin","collector","peer","event_type"], "default": "none" } } } }
+    "start": { "type": "string", "description": "date, or RFC3339 for sub-day" },
+    "end": { "type": "string" },
+    "granularity": { "enum": ["day","week","hour","10m","1m"], "default": "day" },
+    "group_by": { "enum": ["none","origin","collector"], "default": "none" } } } }
 ```
 
 ```jsonc
@@ -95,11 +107,21 @@ Counts over time. Replaces bulk event downloads.
   "summary": { "peak": 4997, "peak_at": "2026-07-31", "median": 573, "total": 181885 },
   "concentration": { "top_collector": "route-views.hkix", "top_collector_share": 0.87 },
   "warnings": [{ "code": "single_vantage_point",
-                 "message": "87% of the increase after 2026-07-28 comes from one collector peer." }] }
+                 "message": "87% of observations come from one collector (route-views.hkix)." }] }
 ```
 
-`group_by: "origin"` at daily granularity is the handover chart.
+`group_by: "origin"` at daily granularity is the handover chart. `hour`, `10m` and
+`1m` read raw events over at most 72 hours; for an ASN target each point then
+carries `prefixes`, the distinct prefixes it originated in the bucket:
 
+```jsonc
+// timeline(target="asn:197207", granularity="10m", start="2026-09-20T09:30:00Z", end="2026-09-20T11:00:00Z")
+{ "points": [ { "t": "2026-09-20T09:50:00Z", "prefixes": 133, "withdrawals": null },
+              { "t": "2026-09-20T10:00:00Z", "prefixes": 514, "withdrawals": null } ],
+  "warnings": [{ "code": "withdrawals_unattributable" }] }
+```
+
+Withdrawals carry no AS path, so for ASN targets `withdrawals` is `null`, never 0.
 ---
 
 ## `origin_history`
@@ -157,25 +179,34 @@ Accepts multiple prefixes so multi-prefix events resolve in one call.
 
 ## `detections`
 
-Platform findings, with direction made explicit.
+Platform findings, with direction made explicit, paged to completion.
 
 ```jsonc
 { "name": "detections",
   "inputSchema": { "type": "object", "properties": {
     "asn": { "type": "integer" }, "prefix": { "type": "string" },
-    "from": { "type": "string" }, "to": { "type": "string" },
-    "detection_type": { "type": "string" }, "anomalous_only": { "type": "boolean", "default": true } },
+    "start": { "type": "string" }, "end": { "type": "string" },
+    "detection_type": { "type": "string" }, "anomalous_only": { "type": "boolean", "default": true },
+    "prefix_status": { "type": "string" }, "role": { "enum": ["actor","baseline"] },
+    "state": { "enum": ["active","resolved"] },
+    "max_incidents": { "type": "integer", "default": 1000, "maximum": 5000 },
+    "summary_only": { "type": "boolean", "default": false } },
     "anyOf": [{ "required": ["asn"] }, { "required": ["prefix"] }] } }
 ```
 
 ```jsonc
-{ "incidents": [{ "detection_type": "rpki_invalid_asn", "severity": "high",
-                  "prefix": "153.43.253.0/24",
+{ "total_matching": 450, "returned": 450, "complete": true,
+  "counts_by_type": { "origin_mismatch_new": 450 },
+  "summary": { "by_type_and_direction": { "origin_mismatch_new":
+                 { "queried_entity_is_invalid_party": 428, "queried_entity_is_baseline": 22 } },
+               "opened_by_hour": { "2026-09-20T09": 13, "2026-09-20T10": 415 },
+               "distinct_prefixes": 450, "distinct_baseline_asns": 61,
+               "peer_count": { "min": 1, "median": 32, "max": 208 } },
+  "incidents": [{ "detection_type": "rpki_invalid_asn", "severity": "high",
+                  "prefix": "153.43.253.0", "prefix_len": 24,
                   "actor_as": 33015, "baseline_asns": [54994],
                   "direction": "queried_entity_is_invalid_party",
-                  "peer_count": 164, "state": "resolved",
-                  "first_seen": "2026-07-10T00:44:50Z" }],
-  "counts_by_type": { "rpki_invalid_asn": 6, "moas_conflict": 12 } }
+                  "details": { "origin": 33015, "covering_vrps": [ ... ] } }] }
 ```
 
 `direction` is the important field. Values:
@@ -185,6 +216,8 @@ Reading `actor_as` against `baseline_asns` incorrectly inverts a report's
 conclusion: a court appeared to be a hijack victim when its own announcements
 were the invalid ones.
 
+`complete: false` means the page limit was hit before every match was read.
+Do not state a count from it; narrow the window or filter by type.
 ---
 
 ## `paths`
@@ -234,6 +267,11 @@ Each row carries `confidence`, `vantage_count` (distinct collector+peer feeds), 
   "warnings": [{ "code": "peering_not_inferred",
                  "message": "other_connections are observed adjacencies of unknown type, not confirmed peers." }] }
 ```
+
+
+`data_through` is the newest day the relationship data covers. When the window
+ends later the response carries `relationships_stale`; when it lies entirely past
+the data, `served_window` says which days were used.
 
 ---
 
@@ -358,23 +396,23 @@ seen in the table, which is the easiest kind to announce unnoticed.
 
 ## `events_sample`
 
-Bounded raw events. **Last resort.**
+Bounded raw events, newest first. **Last resort.**
 
 ```jsonc
 { "name": "events_sample",
-  "inputSchema": { "type": "object", "required": ["prefix","from","to"], "properties": {
+  "inputSchema": { "type": "object", "required": ["prefix","start","end"], "properties": {
     "prefix": { "type": "string" },
-    "from": { "type": "string", "description": "RFC3339; window must be under 24h" },
-    "to": { "type": "string" },
+    "start": { "type": "string", "description": "date or RFC3339; window must be under 24h" },
+    "end": { "type": "string" },
     "limit": { "type": "integer", "default": 200, "maximum": 500 },
-    "filters": { "type": "object", "properties": {
-      "origin_as": {"type":"integer"}, "peer_asn": {"type":"integer"},
-      "collector_id": {"type":"string"}, "event_type": {"enum":["announcement","withdrawal"]} } } } } }
+    "origin_as": {"type":"integer"}, "peer_asn": {"type":"integer"},
+    "collector_id": {"type":"string"}, "event_type": {"enum":["announcement","withdrawal"]} } } }
 ```
 
-Rejects windows over 24 hours. Sets `truncated: true` and suggests a narrower
-window rather than silently truncating.
-
+Filters are applied by the server, so `origin_as=197207` on a prefix with 30,000
+other messages still returns the matching ones. Rejects windows over 24 hours.
+Sets `truncated: true` and gives `matching` (the total) rather than silently
+truncating.
 ---
 
 ## `platform_baseline`
@@ -385,13 +423,107 @@ Is this unusual, platform-wide?
 { "name": "platform_baseline",
   "inputSchema": { "type": "object", "properties": {
     "window": { "type": "string", "default": "14d" },
-    "by": { "enum": ["type","severity"], "default": "type" } } } }
+    "by": { "enum": ["type","severity"], "default": "type" },
+    "day": { "type": "string", "description": "YYYY-MM-DD; default the latest full day" } } } }
 ```
 
-Call this **before** describing anything as anomalous. One investigation was
-correctly abandoned when platform trends showed the day was entirely normal; the
-apparent spike was the platform's ordinary volume.
+```jsonc
+{ "day": "2026-09-23",
+  "series": { "origin_mismatch_new": { "day_count": 6213, "median": 4136, "ratio_to_median": 1.5 } } }
+```
 
+Exact daily counts, not a sample. Call this **before** describing anything as
+anomalous. One investigation was correctly abandoned when platform trends showed
+the day was entirely normal; the apparent spike was the platform's ordinary volume.
+
+---
+
+## `origin_episode`
+
+What did one network originate during a short window that it does not normally
+originate, and whose space was it? Start here for a hijack or leak report.
+
+```jsonc
+{ "name": "origin_episode",
+  "inputSchema": { "type": "object", "required": ["asn","start"], "properties": {
+    "asn": { "type": "integer" }, "start": { "type": "string" }, "end": { "type": "string" },
+    "baseline_days": { "type": "integer", "default": 28 },
+    "after_days": { "type": "integer", "default": 3 },
+    "list_prefixes": { "type": "boolean", "default": true } } } }
+```
+
+```jsonc
+// origin_episode(asn=197207, start="2026-09-20")
+{ "summary": { "prefixes_in_window": 1264, "new_in_window": 447,
+               "new_own_space": 28, "new_other_space": 419,
+               "first_seen": "2026-09-20T09:56:25.000Z", "last_seen": "2026-09-20T10:26:33.000Z",
+               "max_peers": 323, "reference_peers": 83,
+               "exact_conflicts": 78, "conflicts": 10179, "conflict_asns": 1483 },
+  "carriers": [{ "asn": 49666, "prefixes": 419, "is_inferred_provider": true }],
+  "holders":  [{ "asn": 25306, "relation": "exact", "prefixes": 42 }],
+  "prefixes": [{ "prefix": "81.28.32.0/23", "space": "other", "exact_origins": [25306],
+                 "first_seen": "2026-09-20T10:03:12.000Z", "peers": 323 }] }
+```
+
+`conflicts` counts prefix/origin pairs by other networks equal to or inside the
+other-space prefixes during the episode, which is how public monitors count a
+hijack's reach. Covering holders need 2+ baseline days; default routes and blocks
+shorter than /8 (v4) or /16 (v6) never count.
+
+---
+
+## `origin_reach`
+
+Propagation curve for one prefix and one origin.
+
+```jsonc
+{ "name": "origin_reach",
+  "inputSchema": { "type": "object", "required": ["prefix","origin_as","start","end"], "properties": {
+    "prefix": { "type": "string" }, "origin_as": { "type": "integer" },
+    "start": { "type": "string" }, "end": { "type": "string" },
+    "interval_seconds": { "type": "integer", "default": 60 } } } }
+```
+
+```jsonc
+{ "full_table_feeds": 254,
+  "summary": { "peak_pct": 88, "peak_at": "2026-09-20T10:18:00Z",
+               "first_held": "2026-09-20T10:03:12Z", "last_held": "2026-09-20T10:26:42Z" },
+  "phases": [ { "from": "2026-09-20T10:04:00Z", "to": "2026-09-20T10:10:00Z", "peak_pct": 45 },
+              { "from": "2026-09-20T10:17:00Z", "to": "2026-09-20T10:26:00Z", "peak_pct": 88 } ],
+  "warnings": [{ "code": "multiple_phases" }] }
+```
+
+`pct` uses the same full-table-feed denominator as `global_reach`. At most 48 hours.
+Built for new routes: a long-established route is undercounted (sessions that carried
+it throughout without an update are not seen) and the response warns
+`route_predates_window`.
+
+---
+
+## `bulk_registry`
+
+RPKI, IRR and RDAP for many prefixes and ASNs, with an RPKI verdict per prefix.
+
+```jsonc
+{ "name": "bulk_registry",
+  "inputSchema": { "type": "object", "properties": {
+    "prefixes": { "type": "array", "items": { "type": "string" } },
+    "origin_asn": { "type": "integer" },
+    "asns": { "type": "array", "items": { "type": "integer" } },
+    "as_of": { "type": "string", "description": "YYYY-MM-DD" } } } }
+```
+
+```jsonc
+{ "rpki_summary": { "origin_asn": 197207, "valid": 0, "invalid": 0, "not_found": 3, "checked": 3 },
+  "prefixes": [{ "prefix": "185.192.8.0/22", "rpki": "not_found", "irr_origins": [42990],
+                 "irr_matches_origin": false,
+                 "rdap": { "name": "IR-BANKSADERAT-20170227", "country": "IR", "rir": "RIPE NCC" } }] }
+```
+
+IRR origins list only objects still in the registry; deleted ones appear under
+`irr_deleted_origins`. For a past incident pass `as_of`: four prefixes leaked on
+2026-09-20 gained ROAs the next morning and would otherwise read as RPKI-invalid.
+Each 200 items is one API request.
 ---
 ---
 
@@ -450,35 +582,35 @@ protection.
 ## `validate_announcement`
 
 Pre-flight check before announcing space, renumbering, or accepting a customer
-prefix.
+prefix. With `as_of`, the same check against a past day's ROAs and IRR objects.
 
 ```jsonc
 { "name": "validate_announcement",
   "inputSchema": { "type": "object", "required": ["prefix","origin_asn"], "properties": {
     "prefix": { "type": "string" },
     "origin_asn": { "type": "integer" },
-    "check_holder": { "type": "boolean", "default": true } } } }
+    "check_holder": { "type": "boolean", "default": true },
+    "as_of": { "type": "string", "description": "YYYY-MM-DD" } } } }
 ```
 
 ```jsonc
 { "prefix": "198.51.100.0/24", "origin_asn": 64500,
-  "rpki": { "status": "invalid", "reason": "ROA exists for AS64501, max_length 24",
+  "rpki": { "status": "invalid", "reason": "ROA(s) authorize [64501], max_length 24; announcing from AS64500 would be RPKI-invalid.",
             "would_be_rejected_by": "any network performing origin validation" },
-  "irr":  { "status": "missing", "detail": "No route object. Providers building filters from IRR have nothing to match." },
-  "currently_announced_by": [64501],
+  "irr":  { "status": "missing", "detail": "No route object; IRR-based filters have nothing to match." },
+  "announced_by": { "window": { "from": "2026-08-04", "to": "2026-08-11" }, "origins": [64501] },
+  "registry_as_of": { "from": "2026-08-10", "to": "2026-08-11" },
   "holder": { "registrant": "Example Corp", "last_changed": "2026-07-02",
               "recently_transferred": true },
   "verdict": "blocked",
-  "blockers": [
-    "An existing ROA authorizes AS64501; announcing from AS64500 will be RPKI-invalid.",
-    "Space changed registered holder 40 days ago. The previous holder's ROA is still published."
-  ] }
+  "blockers": [ "ROA(s) authorize [64501], max_length 24; announcing from AS64500 would be RPKI-invalid." ],
+  "warnings": [ { "code": "validation", "message": "Space changed registered holder within 90 days. ..." } ] }
 ```
 
-`verdict` is `clear` | `warn` | `blocked`. The `recently_transferred` flag exists
-because of the ten-month invalid tail observed in the AS54994 report: freshly
-transferred space routinely still carries the old holder's ROAs.
-
+`verdict` is `clear` | `warn` | `blocked`. `announced_by` is the origins seen in
+the last 7 days (or on `as_of`), not a live table. The `recently_transferred`
+flag exists because of the ten-month invalid tail observed in the AS54994
+report: freshly transferred space routinely still carries the old holder's ROAs.
 ---
 
 ## `visibility`

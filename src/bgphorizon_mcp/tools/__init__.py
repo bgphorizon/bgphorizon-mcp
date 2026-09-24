@@ -1,4 +1,4 @@
-"""Tool registration. Investigation (17) + operator (3) + alerts (2) = 22 task-shaped tools."""
+"""Tool registration. Investigation (20) + operator (3) + alerts (2) = 25 task-shaped tools."""
 
 from __future__ import annotations
 

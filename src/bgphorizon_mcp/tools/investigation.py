@@ -1,4 +1,4 @@
-"""Investigation tools (17): analyzing a network you do not run.
+"""Investigation tools (20): analyzing a network you do not run.
 
 Each tool is an analytical operation, not a REST route: it composes one or more
 ``/api/v1`` calls and annotates the result with ``warnings`` so the model cannot
@@ -20,10 +20,12 @@ from ..common import (
     length_distribution,
     meta,
     normalize_asn,
+    normalize_warnings,
     parse_target,
+    parse_when,
     prefix_addresses,
+    rfc3339,
     warning,
-    window_from_shorthand,
 )
 from . import _shape
 
@@ -41,7 +43,9 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
 
         The right first step in almost any investigation. Give either `asn` or
         `prefix`. `include` may list rdap, rpki, irr, peeringdb (whois is not yet
-        available through the API)."""
+        available through the API). `country` is the registry's country code and `rir`
+        the registry that answered; both are registry records, not where the network
+        operates. For many prefixes or ASNs at once use `bulk_registry`."""
         if asn is None and not prefix:
             raise ValueError("provide either asn or prefix")
         include = include or ["rdap", "rpki", "irr"]
@@ -69,7 +73,15 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         }
         irr_objs = _shape.irr_objects(irr, observed_origins)
         for obj in irr_objs:
-            if obj.get("stale"):
+            if not obj.get("current", True):
+                warnings.append(
+                    warning(
+                        "irr_object_deleted",
+                        f"IRR object for AS{obj['origin_as']} ({obj['source']}) was last present "
+                        f"{obj.get('last_seen')}; it is no longer in the registry.",
+                    )
+                )
+            elif obj.get("stale"):
                 warnings.append(
                     warning(
                         "irr_origin_mismatch",
@@ -89,6 +101,8 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
             "registered": rdap.get("registration_date"),
             "last_changed": rdap.get("last_changed_date"),
             "abuse": _shape.abuse_email(rdap),
+            "country": rdap.get("country") or None,
+            "rir": _shape.rir_from_rdap(rdap),
         }
         if kind == "asn":
             result["prefix_counts"] = {
@@ -135,12 +149,19 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         end: Optional[str] = None,
         classify: bool = True,
         min_prefix_len: Optional[int] = None,
+        only: Optional[Literal["persistent", "intermittent", "transient"]] = None,
+        summary_only: bool = False,
     ) -> dict:
         """What does this ASN announce, and does it stick?
 
         Returns each prefix with a **server-computed** persistence classification
         (persistent | intermittent | transient). Do not infer persistence from
-        first_seen. Use this."""
+        first_seen. Use this. Every row is originated by `asn`.
+
+        Large networks return thousands of rows: pass `only` to keep one class, or
+        `summary_only=true` for the counts without the list. To find what an ASN
+        announced during a short incident compared with normal, use `origin_episode`
+        rather than diffing inventories by hand."""
         asn = normalize_asn(asn)
         start, end = default_window(start, end, days=30)
         pres = client.presence(asn=asn, **{"from": start, "to": end})
@@ -148,25 +169,24 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
 
         prefixes = []
         addresses_v4 = 0
+        by_class: dict[str, int] = {}
         for p in pres.get("prefixes", []):
             plen = p.get("prefix_len")
             if min_prefix_len is not None and plen is not None and plen < min_prefix_len:
                 continue
-            origins = sorted(
-                {
-                    o
-                    for day in (p.get("origins_by_day") or {}).values()
-                    for o in (day.keys() if isinstance(day, dict) else day)
-                }
-            )
+            cls = p.get("classification")
+            by_class[cls] = by_class.get(cls, 0) + 1
+            if only and cls != only:
+                continue
             entry = {
                 "prefix": p.get("cidr"),
                 "days_present": p.get("days_present"),
                 "days_in_window": p.get("days_in_window"),
-                "origins": [int(o) for o in origins],
+                "first_seen": p.get("first_seen"),
+                "last_seen": p.get("last_seen"),
             }
             if classify:
-                entry["classification"] = p.get("classification")
+                entry["classification"] = cls
             prefixes.append(entry)
             cidr = p.get("cidr") or ""
             if ":" not in cidr:
@@ -174,20 +194,25 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
 
         dist = length_distribution(pres.get("prefixes", []))
         warnings = host_route_warning(dist)
-        warnings += pres.get("warnings", []) if isinstance(pres.get("warnings"), list) else []
+        warnings += normalize_warnings(pres.get("warnings"))
 
-        return {
+        out = {
             "asn": asn,
+            "window": {"from": start, "to": end},
             "totals": {
                 "v4": ov.get("prefixes_v4"),
                 "v6": ov.get("prefixes_v6"),
                 "addresses_v4": addresses_v4,
+                "listed": len(prefixes),
             },
+            "by_classification": by_class,
             "length_distribution": dist,
-            "prefixes": prefixes,
             "warnings": warnings,
             "meta": meta("rollup"),
         }
+        if not summary_only:
+            out["prefixes"] = prefixes
+        return out
 
     # -- timeline ------------------------------------------------------------
     @mcp.tool()
@@ -195,21 +220,44 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         target: str,
         start: Optional[str] = None,
         end: Optional[str] = None,
-        granularity: Literal["day", "week"] = "day",
+        granularity: Literal["day", "week", "hour", "10m", "1m"] = "day",
         group_by: Literal["none", "origin", "collector"] = "none",
     ) -> dict:
         """Counts over time for `target` (asn:13335 or prefix:1.1.1.0/24). Replaces
         bulk event downloads. `group_by=origin` at daily granularity is the handover
-        chart. Hour granularity and peer/event_type grouping are not available (the
-        underlying rollup is daily)."""
+        chart.
+
+        `hour`, `10m` and `1m` read raw events for a window of at most 72 hours; give
+        `start`/`end` as RFC3339 (2026-09-20T09:30:00Z) or dates. For an ASN target the
+        sub-day points also carry `prefixes`, the number of distinct prefixes it
+        originated in each bucket, which is how a short leak shows up.
+
+        Withdrawals carry no AS path, so for ASN targets they cannot be attributed to
+        the ASN: `withdrawals` is then null, not zero. Use a prefix target, or
+        `reachability`, for withdrawal behaviour."""
         kind, value = parse_target(target)
-        start, end = default_window(start, end, days=30)
-        params: dict[str, Any] = {"from": start, "to": end, "granularity": granularity}
+        sub_day = granularity in ("hour", "10m", "1m")
+        if sub_day:
+            t_end = parse_when(end, end_of_day=True) if end else None
+            t_start = parse_when(start) if start else None
+            params: dict[str, Any] = {"granularity": granularity}
+            if t_start:
+                params["from"] = rfc3339(t_start)
+            if t_end:
+                params["to"] = rfc3339(t_end)
+        else:
+            start, end = default_window(start, end, days=30)
+            params = {"from": start, "to": end, "granularity": granularity}
         if group_by != "none":
             params["group_by"] = group_by
         ts = client.timeseries(f"{kind}:{value}", **params)
 
-        points = ts.get("points", [])
+        ts_meta = ts.get("meta", {}) or {}
+        withdrawals_ok = ts_meta.get("withdrawals_available", kind != "asn")
+        points = ts.get("points", []) or []
+        if not withdrawals_ok:
+            for p in points:
+                p["withdrawals"] = None
         vals = [p.get("announcements", 0) for p in points]
         vals_sorted = sorted(vals)
         median = vals_sorted[len(vals_sorted) // 2] if vals_sorted else 0
@@ -217,20 +265,29 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         peak_at = next((p["t"] for p in points if p.get("announcements") == peak), None)
 
         warnings = concentration_warning(ts.get("concentration"))
+        if not withdrawals_ok:
+            warnings.append(
+                warning(
+                    "withdrawals_unattributable",
+                    "Withdrawals carry no AS path, so they cannot be attributed to an ASN; "
+                    "withdrawal counts are omitted for ASN targets, not zero.",
+                )
+            )
         return {
             "target": target,
             "granularity": granularity,
             "group_by": group_by,
+            "window": {"from": ts.get("from"), "to": ts.get("to")},
             "points": points,
             "summary": {
                 "peak": peak,
                 "peak_at": peak_at,
                 "median": median,
-                "total": ts.get("meta", {}).get("total", sum(vals)),
+                "total": ts_meta.get("total", sum(vals)),
             },
             "concentration": ts.get("concentration"),
             "warnings": warnings,
-            "meta": meta(ts.get("meta", {}).get("source", "rollup")),
+            "meta": meta(ts_meta.get("source", "rollup")),
         }
 
     # -- origin_history ------------------------------------------------------
@@ -256,7 +313,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         distinct = sorted({o for d in days for o in d["origins"]})
         moas_days = sum(1 for d in days if d["moas"])
 
-        warnings = pres.get("warnings", []) if isinstance(pres.get("warnings"), list) else []
+        warnings = normalize_warnings(pres.get("warnings"))
         if not transitions and len(distinct) <= 1:
             warnings.append(
                 warning(
@@ -344,39 +401,91 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         end: Optional[str] = None,
         detection_type: Optional[str] = None,
         anomalous_only: bool = True,
+        prefix_status: Optional[str] = None,
+        role: Optional[Literal["actor", "baseline"]] = None,
+        state: Optional[Literal["active", "resolved"]] = None,
+        max_incidents: Annotated[int, Field(ge=1, le=5000)] = 1000,
+        summary_only: bool = False,
     ) -> dict:
         """Platform findings for an ASN or prefix, with direction made explicit.
         `direction` (queried_entity_is_invalid_party | queried_entity_is_baseline |
         third_party) tells you whether the queried entity is the offender or the
-        victim. Reading actor_as against baseline_asns by hand inverts conclusions."""
+        victim. Reading actor_as against baseline_asns by hand inverts conclusions.
+
+        Pages through the API until `max_incidents` or the end. `complete=true` means
+        every matching incident was read, so counts in `summary` are exact; when false,
+        do not state a count without narrowing (a shorter window or a `detection_type`)
+        until it is. `summary_only=true` returns the aggregates without the incident list,
+        which keeps large results readable. `details` is returned as an object.
+
+        Filters: `detection_type`, `prefix_status` (established | new | new_more_specific
+        | returned), `role` for an ASN (actor = it made the claim, baseline = its space
+        was claimed), `state` (active | resolved)."""
         if asn is None and not prefix:
             raise ValueError("provide either asn or prefix")
         start, end = default_window(start, end, days=90)
-        params: dict[str, Any] = {"from": start, "to": end, "limit": 200}
+        params: dict[str, Any] = {"from": start, "to": end, "limit": 500}
         if detection_type:
             params["type"] = detection_type
         if anomalous_only:
             params["anomalous"] = "true"
+        if prefix_status:
+            params["prefix_status"] = prefix_status
+        if role and asn is not None:
+            params["role"] = role
+        if state:
+            params["state"] = state
 
         norm_asn = normalize_asn(asn) if asn is not None else None
-        if norm_asn is not None:
-            resp = client.detections_asn(norm_asn, **params)
-        else:
-            resp = client.detections_prefix(prefix, **params)
+        incidents: list[dict] = []
+        total = None
+        offset = 0
+        while len(incidents) < max_incidents:
+            params["offset"] = offset
+            params["limit"] = min(500, max_incidents - len(incidents))
+            if norm_asn is not None:
+                resp = client.detections_asn(norm_asn, **params)
+            else:
+                resp = client.detections_prefix(prefix, **params)
+            page = resp.get("incidents", []) or []
+            total = (resp.get("pagination") or {}).get("total", total)
+            incidents.extend(page)
+            offset += len(page)
+            if not page or (total is not None and offset >= total):
+                break
 
-        incidents = resp.get("incidents", []) or []
         for inc in incidents:
+            _shape.parse_details(inc)
             d = _shape.detection_direction(inc, norm_asn)
             if d:
                 inc["direction"] = d
-        return {
-            "query": {"asn": norm_asn, "prefix": prefix, "anomalous_only": anomalous_only},
-            "incidents": incidents,
+        complete = total is None or len(incidents) >= total
+        warnings: list[dict] = []
+        if not complete:
+            warnings.append(
+                warning(
+                    "incomplete",
+                    f"Read {len(incidents)} of {total} matching incidents. Counts below cover only "
+                    "those; narrow the window or filter by detection_type before stating totals.",
+                )
+            )
+        out: dict[str, Any] = {
+            "query": {
+                "asn": norm_asn, "prefix": prefix, "from": start, "to": end,
+                "detection_type": detection_type, "anomalous_only": anomalous_only,
+            },
+            "total_matching": total,
+            "returned": len(incidents),
+            "complete": complete,
             "counts_by_type": _shape.counts_by(incidents, "detection_type"),
             "counts_by_severity": _shape.counts_by(incidents, "severity"),
-            "warnings": [],
-            "meta": meta("registry", total=resp.get("pagination", {}).get("total")),
+            "summary": _shape.detections_summary(incidents),
+            "warnings": warnings,
+            "meta": meta("registry", total=total),
         }
+        if not summary_only:
+            out["incidents"] = incidents
+        return out
 
     # -- paths ---------------------------------------------------------------
     @mcp.tool()
@@ -384,15 +493,28 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         prefix: str,
         start: Optional[str] = None,
         end: Optional[str] = None,
+        origin_as: Optional[int] = None,
     ) -> dict:
         """Transit structure for a prefix with prepending resolved: immediate
-        upstreams and their share, plus top paths with collapsed_path / prepend_count."""
+        upstreams and their share, plus top paths with collapsed_path / prepend_count.
+
+        Pass `origin_as` to see only one origin's paths. On a contested prefix the top
+        paths otherwise all belong to the usual origin, and a short hijack's paths never
+        make the list."""
         start, end = default_window(start, end, days=30)
-        ov = client.prefix_overview(prefix, start_date=start, end_date=end)
+        params: dict[str, Any] = {"start_date": start, "end_date": end}
+        if origin_as is not None:
+            params["origin_as"] = normalize_asn(origin_as)
+        ov = client.prefix_overview(prefix, **params)
         path_list = ov.get("paths", []) or []
         warnings = concentration_warning(ov.get("concentration"))
+        if origin_as is not None and not path_list:
+            warnings.append(
+                warning("no_paths_for_origin", f"No paths from AS{normalize_asn(origin_as)} in the window.")
+            )
         return {
             "prefix": prefix,
+            "origin_as": normalize_asn(origin_as) if origin_as is not None else None,
             "upstreams": _shape.aggregate_upstreams(path_list),
             "paths": [
                 {
@@ -427,6 +549,10 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         observed but cannot classify. Do not present them as confirmed peers. Results
         reflect the requested date window; relationships change over time.
 
+        `data_through` is the newest day the relationship data covers. If the window ends
+        later there is a `relationships_stale` warning, and if it lies entirely past the
+        data the answer is for `served_window`. Say so when you cite it.
+
         This is the transit TOPOLOGY (who provides transit to whom). For observed USAGE,
         which of those upstreams carry the network's routes and how lopsided that
         is, use `path_diversity`. The two are complementary."""
@@ -446,9 +572,19 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
                 for r in (rows or [])
             ]
 
+        rmeta = resp.get("meta") or {}
+        rel_warnings = [
+            warning(
+                "peering_not_inferred",
+                "Peering is not reliably inferable from routing data; "
+                "other_connections are observed adjacencies of unknown type, not confirmed peers.",
+            )
+        ] + normalize_warnings(rmeta.get("warnings"))
         return {
             "asn": norm,
             "window": {"from": start, "to": end},
+            "served_window": {"from": rmeta.get("served_from"), "to": rmeta.get("served_to")},
+            "data_through": rmeta.get("data_through"),
             "upstreams": shape(resp.get("upstreams")),
             "downstreams": shape(resp.get("downstreams")),
             "other_connections": shape(resp.get("other_connections")),
@@ -458,14 +594,8 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
                 "other_connections": resp.get("other_connection_count"),
                 "neighbors": resp.get("neighbor_count"),
             },
-            "warnings": [
-                warning(
-                    "peering_not_inferred",
-                    "Peering is not reliably inferable from routing data; "
-                    "other_connections are observed adjacencies of unknown type, not confirmed peers.",
-                )
-            ],
-            "meta": meta("rollup", method=(resp.get("meta") or {}).get("method")),
+            "warnings": rel_warnings,
+            "meta": meta("rollup", method=rmeta.get("method")),
         }
 
     # -- path_diversity ------------------------------------------------------
@@ -774,7 +904,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
     @mcp.tool()
     def events_sample(
         prefix: str,
-        start: Annotated[str, Field(description="YYYY-MM-DD; window <= 24h")],
+        start: Annotated[str, Field(description="YYYY-MM-DD or RFC3339 (2026-09-20T10:00:00Z); window <= 24h")],
         end: str,
         limit: int = 200,
         origin_as: Optional[int] = None,
@@ -782,53 +912,61 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         collector_id: Optional[str] = None,
         event_type: Optional[Literal["announcement", "withdrawal"]] = None,
     ) -> dict:
-        """Bounded raw events for a NARROW window. Use it last. Capped at 500 events;
-        rejects windows over ~24h. Use only after timeline/reachability/origin_history
-        have localised what you need to see at the message level."""
-        import datetime as _dt
+        """Bounded raw events for a NARROW window, newest first. Use it last. Capped at
+        500 events; rejects windows over 24h. Use only after timeline/reachability/
+        origin_history/origin_reach have localised what you need to see at the message
+        level.
 
-        try:
-            fd = _dt.date.fromisoformat(start)
-            td = _dt.date.fromisoformat(end)
-        except ValueError as exc:
-            raise ValueError("from/to must be YYYY-MM-DD dates") from exc
-        if (td - fd).days > 1:
+        `start`/`end` may be dates (a date `end` includes the whole day) or RFC3339
+        timestamps for a minutes-wide window. The origin/peer/collector/event_type
+        filters are applied by the server, so a filtered request returns matching
+        events even when the prefix has tens of thousands of others."""
+        t_start = parse_when(start)
+        t_end = parse_when(end, end_of_day=True)
+        if t_end <= t_start:
+            raise ValueError("end must be after start")
+        if (t_end - t_start).total_seconds() > 86400 + 1:
             raise ValueError(
-                "window too wide for events_sample (max ~24h). Narrow it, or use "
+                "window too wide for events_sample (max 24h). Narrow it, or use "
                 "timeline for counts over a longer period."
             )
         limit = max(1, min(limit, 500))
-        params: dict[str, Any] = {"start_date": start, "end_date": end, "limit": limit}
+        fmt = "%Y-%m-%d %H:%M:%S"
+        params: dict[str, Any] = {
+            "start_date": t_start.strftime("%Y-%m-%d"),
+            "end_date": t_end.strftime("%Y-%m-%d"),
+            "timestamp_start": t_start.strftime(fmt),
+            "timestamp_end": t_end.strftime(fmt),
+            "limit": limit,
+        }
         if event_type:
             params["event_type"] = event_type
+        if origin_as is not None:
+            params["origin_as"] = normalize_asn(origin_as)
+        if peer_asn is not None:
+            params["peer_asn"] = normalize_asn(peer_asn)
+        if collector_id:
+            params["collector_id"] = collector_id
         resp = client.prefix_events(prefix, **params)
         events = resp.get("events", []) or []
-
-        def keep(e: dict) -> bool:
-            if origin_as is not None and e.get("origin_as") != origin_as:
-                return False
-            if peer_asn is not None and e.get("peer_asn") != peer_asn:
-                return False
-            if collector_id and e.get("collector_id") != collector_id:
-                return False
-            return True
-
-        events = [e for e in events if keep(e)][:limit]
-        total = resp.get("pagination", {}).get("total", len(events))
-        truncated = bool(resp.get("pagination", {}).get("has_more")) or total > len(events)
+        pag = resp.get("pagination", {}) or {}
+        total = pag.get("total", len(events))
+        truncated = bool(pag.get("has_more")) or (isinstance(total, int) and total > len(events))
         warnings = []
         if truncated:
             warnings.append(
                 warning(
                     "truncated",
-                    f"Showing {len(events)} of ~{total} events. Narrow the window or add "
+                    f"Showing {len(events)} of ~{total} matching events. Narrow the window or add "
                     "filters (origin_as, peer_asn, collector_id) rather than reading more.",
                 )
             )
         return {
             "prefix": prefix,
+            "window": {"from": rfc3339(t_start), "to": rfc3339(t_end)},
             "events": events,
             "returned": len(events),
+            "matching": total,
             "truncated": truncated,
             "warnings": warnings,
             "meta": meta("raw_events"),
@@ -839,35 +977,47 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
     def platform_baseline(
         window: str = "14d",
         by: Literal["type", "severity"] = "type",
+        day: Optional[str] = None,
     ) -> dict:
-        """Is today unusual, platform-wide? Aggregates recent anomalous detections so
-        you can tell an ordinary busy day from a real event. Call this BEFORE
-        describing anything as anomalous. An apparent spike is often just the
-        platform's normal volume."""
-        start, end = window_from_shorthand(window, default_days=14)
-        resp = client.detections_search(
-            **{"start_date": start, "end_date": end, "limit": 500}
-        )
-        incidents = resp.get("incidents", []) or []
-        total = resp.get("pagination", {}).get("total", len(incidents))
-        field = "detection_type" if by == "type" else "severity"
-        breakdown = _shape.counts_by(incidents, field)
+        """Is a day unusual, platform-wide? Exact daily counts of anomalous incidents by
+        detection type (or severity) over the window, each series' median, and how `day`
+        (default: the latest full day) compares with it. Call this BEFORE describing
+        anything as anomalous. An apparent spike is often just the platform's normal
+        volume."""
+        days = max(2, min(90, int(str(window).rstrip("dD") or 14)))
+        resp = client.detections_trends(window=f"{days}d", by=by)
+        series: dict[str, dict[str, int]] = {}
+        for p in resp.get("points", []) or []:
+            series.setdefault(p.get("series"), {})[p.get("date")] = p.get("count", 0)
+        dates = sorted({d for s_ in series.values() for d in s_})
+        if not dates:
+            return {"window_days": days, "by": by, "series": {}, "warnings": [warning("no_data", "No trend data for the window.")], "meta": meta("registry")}
+        target = day or (dates[-2] if len(dates) > 1 else dates[-1])  # the last date is usually partial
+        rows = {}
+        for name, byday in series.items():
+            vals = [byday.get(d, 0) for d in dates if d != target]
+            vals_sorted = sorted(vals)
+            med = vals_sorted[len(vals_sorted) // 2] if vals_sorted else 0
+            v = byday.get(target, 0)
+            rows[name] = {
+                "day_count": v,
+                "median": med,
+                "ratio_to_median": round(v / med, 2) if med else None,
+                "window_total": sum(byday.values()),
+            }
+        rows = dict(sorted(rows.items(), key=lambda kv: -kv[1]["window_total"]))
         warnings = []
-        if total > len(incidents):
-            warnings.append(
-                warning(
-                    "sampled_baseline",
-                    f"Baseline computed from the {len(incidents)} most recent of ~{total} "
-                    "anomalous incidents in the window; treat proportions, not absolute counts.",
-                )
-            )
+        if target == dates[-1]:
+            warnings.append(warning("partial_day", f"{target} is today (UTC) and still filling in; compare a complete day."))
         return {
-            "window": {"from": start, "to": end},
+            "window": {"from": dates[0], "to": dates[-1]},
             "by": by,
-            "total_incidents": total,
-            "breakdown": breakdown,
+            "day": target,
+            "series": rows,
+            "daily": {name: [byday.get(d, 0) for d in dates] for name, byday in series.items()},
+            "dates": dates,
             "warnings": warnings,
-            "meta": meta("registry"),
+            "meta": meta("registry", exact=True),
         }
 
     # -- notable_events ------------------------------------------------------
@@ -875,21 +1025,36 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
     def notable_events(
         hours: Annotated[int, Field(ge=1, le=168)] = 24,
         limit: Annotated[int, Field(ge=1, le=100)] = 25,
+        asn: Optional[int] = None,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
     ) -> dict:
-        """What potentially notable BGP events are happening across the internet
-        right now? Returns a scored feed of one network announcing address space
-        that another network normally originates, which is what a hijack or route
-        leak looks like. Events are ranked so the ones worth a human's attention
-        float up: a more prominent victim network, more corroborating detectors, and
-        more affected prefixes raise the score, while likely leaks (the two
-        networks are related) and shared/leased address space are pushed down.
+        """What potentially notable BGP events are happening across the internet? Returns
+        a scored feed of one network announcing address space that another network
+        normally originates, which is what a hijack or route leak looks like. Events are
+        ranked so the ones worth a human's attention float up: a more prominent victim
+        network, more corroborating detectors, and more affected prefixes raise the
+        score, while likely leaks (the two networks are related) and shared/leased
+        address space are pushed down.
+
+        Live feed by default (the last `hours`). For a past incident pass `start`/`end`
+        (dates or RFC3339, within the last 90 days, at most 31 days wide) and/or `asn`
+        (as announcer or usual origin). Scoped to an ASN, incidents with no known usual
+        origin are kept and appear with `usual_origin_as: 0`.
 
         These are LEADS, not verdicts. Relationship inference is imperfect, so an
         event can be flagged when the two parties are the same operator.
         Investigate before describing anything as a confirmed hijack: `identify`
-        the two ASNs and pull the affected prefix's history. `hours` is the
-        lookback (≤168), `limit` the number of events (≤100)."""
-        data = client.notable_events(window_hours=hours, limit=limit)
+        the two ASNs, run `origin_episode` for the announcer, and pull the affected
+        prefix's history."""
+        params: dict[str, Any] = {"window_hours": hours, "limit": limit}
+        if asn is not None:
+            params["asn"] = normalize_asn(asn)
+        if start:
+            params["start"] = rfc3339(parse_when(start))
+        if end:
+            params["end"] = rfc3339(parse_when(end, end_of_day=True))
+        data = client.notable_events(**params)
         events = data.get("events") or []
         shaped = []
         for e in events:
@@ -927,3 +1092,242 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
             "warnings": warnings,
             "meta": meta("composed"),
         }
+
+    # -- origin_episode ------------------------------------------------------
+    @mcp.tool()
+    def origin_episode(
+        asn: int,
+        start: Annotated[str, Field(description="First episode day, YYYY-MM-DD")],
+        end: Optional[str] = None,
+        baseline_days: Annotated[int, Field(ge=7, le=60)] = 28,
+        after_days: Annotated[int, Field(ge=0, le=14)] = 3,
+        list_prefixes: bool = True,
+    ) -> dict:
+        """What did this ASN originate during a short window (up to 7 days) that it does
+        not originate normally, and whose space was it? The first call for a suspected
+        hijack or route leak by one network.
+
+        The episode is compared with the `baseline_days` before it and the `after_days`
+        after it. New prefixes are split into the ASN's own space (inside a block it
+        announced before) and other networks' space.
+
+        Each other-space prefix comes with its first and last announcement and the peers
+        and collectors that saw it. If another AS originated the same prefix it is listed
+        as a MOAS; otherwise you get the holder of the most specific covering block, as
+        long as that block was held on 2 or more baseline days. Default routes and blocks
+        shorter than /8 or /16 never count as holders.
+
+        The summary counts conflicts the way public hijack monitors do: prefix and origin
+        pairs by other ASes equal to or inside the leaked prefixes during the episode.
+        `carriers` are the ASes that passed the routes on, marked when one is an inferred
+        provider of the ASN.
+
+        Compare `summary.max_peers` with `summary.reference_peers` (the median for the
+        ASN's own steady prefixes) rather than reading peer counts on their own. Presence
+        is judged per day, so a prefix the ASN announced for a moment on a baseline day
+        counts as known. Follow up with `origin_reach` on a few prefixes for the
+        minute-by-minute propagation curve."""
+        params: dict[str, Any] = {"from": start, "baseline_days": baseline_days, "after_days": after_days}
+        if end:
+            params["to"] = end
+        resp = client.asn_episode(normalize_asn(asn), **params)
+        warnings = normalize_warnings(resp.get("warnings"))
+        summ = resp.get("summary") or {}
+        if summ.get("new_other_space"):
+            warnings.append(
+                warning(
+                    "registry_labels",
+                    "Holder ASNs come from routing data (who announced the covering block), not "
+                    "from registry allocation. Run identify or bulk_registry before naming owners.",
+                )
+            )
+        out = {k: resp.get(k) for k in ("asn", "from", "to", "baseline_from", "baseline_to", "after_from", "after_to")}
+        out.update({
+            "summary": summ,
+            "carriers": resp.get("carriers") or [],
+            "holders": resp.get("holders") or [],
+            "warnings": warnings,
+            "meta": meta("rollup"),
+        })
+        if list_prefixes:
+            out["prefixes"] = resp.get("prefixes") or []
+        return out
+
+    # -- origin_reach --------------------------------------------------------
+    @mcp.tool()
+    def origin_reach(
+        prefix: str,
+        origin_as: int,
+        start: Annotated[str, Field(description="RFC3339 (2026-09-20T09:50:00Z) or YYYY-MM-DD")],
+        end: str,
+        interval_seconds: Annotated[int, Field(ge=10, le=3600)] = 60,
+    ) -> dict:
+        """How far did one origin's route for a prefix propagate, and when? A propagation
+        curve: at each step, how many collector sessions carried a route for the prefix
+        from `origin_as`, and what share of full-table feeds that is (the same
+        denominator as global_reach). The summary gives the peak, when it happened, and
+        the first and last moment any session carried it. Separate waves show up as
+        separate humps. Window at most 48 hours; this reads raw events.
+
+        Built for a NEW route (a hijack, a leak). Only BGP updates are stored, so a session
+        that has carried a long-established route since before the lookback and sent no
+        update is invisible, and the curve undercounts: a `route_predates_window` warning
+        says so. For an established route's reach use `global_reach`."""
+        resp = client.prefix_origin_reach(
+            prefix,
+            origin_as=normalize_asn(origin_as),
+            **{"from": rfc3339(parse_when(start)), "to": rfc3339(parse_when(end, end_of_day=True))},
+            interval=interval_seconds,
+        )
+        series = resp.get("series") or []
+        phases = []
+        cur = None
+        for p in series:
+            if p.get("sessions", 0) > 0:
+                if cur is None:
+                    cur = {"from": p["t"], "to": p["t"], "peak_pct": p.get("pct", 0), "peak_sessions": p.get("sessions", 0)}
+                else:
+                    cur["to"] = p["t"]
+                    if p.get("sessions", 0) > cur["peak_sessions"]:
+                        cur["peak_sessions"], cur["peak_pct"] = p["sessions"], p.get("pct", 0)
+            elif cur is not None:
+                phases.append(cur)
+                cur = None
+        if cur is not None:
+            phases.append(cur)
+        warnings = normalize_warnings(resp.get("warnings"))
+        if len(phases) > 1:
+            warnings.append(
+                warning(
+                    "multiple_phases",
+                    f"The route was carried in {len(phases)} separate periods; report them as phases, "
+                    "not one continuous event. Phase edges are at the sampling interval's resolution.",
+                )
+            )
+        return {
+            "prefix": resp.get("prefix", prefix),
+            "origin_as": resp.get("origin_as"),
+            "window": {"from": resp.get("from"), "to": resp.get("to")},
+            "interval_seconds": resp.get("interval_seconds"),
+            "full_table_feeds": resp.get("full_table_feeds"),
+            "summary": resp.get("summary"),
+            "phases": phases,
+            "series": series,
+            "warnings": warnings,
+            "meta": meta("raw_events"),
+        }
+
+    # -- bulk_registry -------------------------------------------------------
+    @mcp.tool()
+    def bulk_registry(
+        prefixes: Optional[list[str]] = None,
+        origin_asn: Optional[int] = None,
+        asns: Optional[list[int]] = None,
+        as_of: Annotated[Optional[str], Field(description="YYYY-MM-DD: judge RPKI/IRR against that day's data")] = None,
+    ) -> dict:
+        """RPKI, IRR and RDAP for many prefixes and ASNs in one go (batched 200 at a time).
+        For each prefix: covering ROAs and, when `origin_asn` is given, the RPKI verdict
+        for that origin (valid | invalid | not_found), IRR route-object origins and
+        whether they include `origin_asn`, and the RDAP holder, country and RIR. For each
+        ASN: RDAP name, country and RIR. Use it to state registry facts for a whole
+        episode instead of sampling a handful.
+
+        For a past incident always pass `as_of` (the incident day). Without it RPKI/IRR
+        reflect the last 30 days, and holders often publish ROAs right after an incident:
+        four prefixes AS197207 leaked on 2026-09-20 gained ROAs the next morning, and read
+        against current data would wrongly show as RPKI-invalid at the time. RDAP is always
+        the current record."""
+        prefixes = [p.strip() for p in (prefixes or []) if p and p.strip()]
+        asn_list = [normalize_asn(a) for a in (asns or [])]
+        if not prefixes and not asn_list:
+            raise ValueError("provide prefixes and/or asns")
+        if len(prefixes) > 2000 or len(asn_list) > 2000:
+            raise ValueError("at most 2000 prefixes and 2000 asns per call")
+        origin = normalize_asn(origin_asn) if origin_asn is not None else None
+
+        pfx_out: list[dict] = []
+        asn_out: list[dict] = []
+        counts = {"valid": 0, "invalid": 0, "not_found": 0}
+        for i in range(0, max(len(prefixes), len(asn_list)), 200):
+            chunk_p = prefixes[i:i + 200]
+            chunk_a = asn_list[i:i + 200]
+            if not chunk_p and not chunk_a:
+                break
+            body: dict[str, Any] = {"include": ["rpki", "irr", "rdap"]}
+            if as_of:
+                body["as_of"] = as_of
+            if chunk_p:
+                body["prefixes"] = chunk_p
+            if chunk_a:
+                body["asns"] = chunk_a
+            resp = client.registry_bulk(body)
+            for p in chunk_p:
+                e = (resp.get("prefixes") or {}).get(p) or {}
+                roas = ((e.get("rpki") or {}).get("records")) or []
+                plen = int(p.split("/")[1]) if "/" in p else None
+                entry: dict[str, Any] = {
+                    "prefix": p,
+                    "roas": [
+                        {"prefix": r.get("cidr") or r.get("prefix"), "origin_asn": r.get("origin_asn"), "max_length": r.get("max_length")}
+                        for r in roas
+                    ],
+                }
+                if origin is not None:
+                    if not roas:
+                        v = "not_found"
+                    elif any(r.get("origin_asn") == origin and (r.get("max_length") is None or plen is None or r["max_length"] >= plen) for r in roas):
+                        v = "valid"
+                    else:
+                        v = "invalid"
+                    entry["rpki"] = v
+                    counts[v] += 1
+                irr_recs = ((e.get("irr") or {}).get("records")) or []
+                live = (lambda r: True) if as_of else _shape.irr_is_current
+                irr_origins = sorted({r.get("origin_as") for r in irr_recs if r.get("origin_as") and live(r)})
+                gone = sorted({r.get("origin_as") for r in irr_recs if r.get("origin_as") and not live(r)} - set(irr_origins))
+                entry["irr_origins"] = irr_origins
+                if gone:
+                    entry["irr_deleted_origins"] = gone  # objects deleted within the last 30 days
+                if origin is not None:
+                    entry["irr_matches_origin"] = origin in irr_origins if irr_origins else None
+                rd = e.get("rdap") or {}
+                entry["rdap"] = {
+                    "name": rd.get("Name") or rd.get("name"),
+                    "country": rd.get("Country") or rd.get("country") or None,
+                    "rir": _shape.rir_from_rdap(rd),
+                }
+                if e.get("error"):
+                    entry["error"] = e["error"]
+                pfx_out.append(entry)
+            for a in chunk_a:
+                e = (resp.get("asns") or {}).get(str(a)) or {}
+                rd = e.get("rdap") or {}
+                asn_out.append({
+                    "asn": a,
+                    "name": rd.get("Name") or rd.get("name"),
+                    "country": rd.get("Country") or rd.get("country") or None,
+                    "rir": _shape.rir_from_rdap(rd),
+                })
+        out: dict[str, Any] = {
+            "prefixes": pfx_out,
+            "asns": asn_out,
+            "warnings": [
+                warning(
+                    "registry_labels",
+                    "Names and countries are registry records, often set at allocation; use them as "
+                    "identifiers, not as statements about where or how the space is used today.",
+                )
+            ],
+            "meta": meta("registry"),
+        }
+        out["registry_as_of"] = as_of or "last 30 days"
+        if not as_of:
+            out["warnings"].append(
+                warning(
+                    "current_registry_state",
+                    "RPKI/IRR are the last 30 days' state. For an incident in the past, pass as_of.",
+                )
+            )
+        if origin is not None:
+            out["rpki_summary"] = {"origin_asn": origin, **counts, "checked": len(pfx_out)}
+        return out

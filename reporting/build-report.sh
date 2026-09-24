@@ -74,44 +74,78 @@ python3 "$HERE/style-lint.py" "$OUT/$NAME.html"
 
 # ---- 3. render ---------------------------------------------------------------
 find_chrome() {
-  for c in google-chrome chromium chromium-browser \
+  for c in ${CHROME_BIN:-} google-chrome google-chrome-stable chromium chromium-browser \
            "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe" \
            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"; do
     command -v "$c" >/dev/null 2>&1 && { echo "$c"; return; }
     [ -x "$c" ] && { echo "$c"; return; }
   done
 }
-CHROME="$(find_chrome || true)"
 
-if [ -z "${CHROME:-}" ]; then
-  echo "  no Chrome found. HTML built, skipping PDF/PNG"
-  echo "  → $OUT/$NAME.html"
+ABS="$(cd "$OUT" && pwd)/$NAME.html"
+PDF_FINAL="$(cd "$OUT" && pwd)/$NAME.pdf"
+PNG_FINAL="$(cd "$OUT" && pwd)/$NAME.png"
+rm -f "$PDF_FINAL" "$PNG_FINAL"
+
+render_with_chrome() {
+  local chrome="$1" url="file://$ABS" pdf="$PDF_FINAL" png="$PNG_FINAL" windir=""
+  # WSL: a Windows Chrome needs a Windows-visible path. If WSL interop is disabled the .exe
+  # cannot run at all; the fallback below then takes over.
+  if [[ "$chrome" == /mnt/c/* ]]; then
+    windir="/mnt/c/temp/bgphorizon_build"; mkdir -p "$windir" || return 1
+    cp "$OUT/$NAME.html" "$windir/" || return 1
+    url="file:///C:/temp/bgphorizon_build/$NAME.html"
+    pdf="C:\\temp\\bgphorizon_build\\$NAME.pdf"
+    png="C:\\temp\\bgphorizon_build\\$NAME.png"
+  fi
+  "$chrome" --headless --disable-gpu --no-pdf-header-footer \
+    --print-to-pdf="$pdf" "$url" >/dev/null 2>&1 || true
+  "$chrome" --headless --disable-gpu --window-size=1200,2400 \
+    --screenshot="$png" "$url" >/dev/null 2>&1 || true
+  if [[ -n "$windir" ]]; then
+    cp "$windir/$NAME.pdf" "$OUT/" 2>/dev/null || true
+    cp "$windir/$NAME.png" "$OUT/" 2>/dev/null || true
+  fi
+  [[ -s "$PDF_FINAL" ]]
+}
+
+# Fallback: Playwright's bundled Chromium (pip install playwright && playwright install chromium).
+render_with_playwright() {
+  python3 - "$ABS" "$PDF_FINAL" "$PNG_FINAL" <<'PYR'
+import sys
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:
+    sys.exit(1)
+src, pdf, png = sys.argv[1:4]
+with sync_playwright() as p:
+    b = p.chromium.launch()
+    page = b.new_page(viewport={"width": 1200, "height": 2400})
+    page.goto("file://" + src)
+    page.screenshot(path=png)
+    page.emulate_media(media="print")
+    page.pdf(path=pdf, print_background=True, prefer_css_page_size=True)
+    b.close()
+PYR
+}
+
+CHROME="$(find_chrome || true)"
+RENDERED=""
+if [[ -n "${CHROME:-}" ]] && render_with_chrome "$CHROME"; then
+  RENDERED="chrome ($CHROME)"
+elif render_with_playwright 2>/dev/null; then
+  RENDERED="playwright"
+fi
+
+if [[ -z "$RENDERED" ]]; then
+  echo "  could not render PDF/PNG: no working Chrome/Chromium"
+  [[ -n "${CHROME:-}" ]] && echo "    found $CHROME but it did not produce output (on WSL, check that interop is enabled)"
+  echo "    fix: install chromium, set CHROME_BIN=/path/to/chrome, or"
+  echo "         pip install playwright && python3 -m playwright install chromium"
+  echo "  → $OUT/$NAME.html (validated, style-linted)"
   exit 0
 fi
-
-# WSL: Chrome needs a Windows-visible path
-ABS="$(cd "$OUT" && pwd)/$NAME.html"
-URL="file://$ABS"
-if [[ "$CHROME" == /mnt/c/* ]]; then
-  WINDIR="/mnt/c/temp/bgphorizon_build"; mkdir -p "$WINDIR"
-  cp "$OUT/$NAME.html" "$WINDIR/"
-  URL="file:///C:/temp/bgphorizon_build/$NAME.html"
-  PDF_OUT="C:\\temp\\bgphorizon_build\\$NAME.pdf"
-  PNG_OUT="C:\\temp\\bgphorizon_build\\$NAME.png"
-else
-  PDF_OUT="$(cd "$OUT" && pwd)/$NAME.pdf"
-  PNG_OUT="$(cd "$OUT" && pwd)/$NAME.png"
-fi
-
-"$CHROME" --headless --disable-gpu --no-pdf-header-footer \
-  --print-to-pdf="$PDF_OUT" "$URL" 2>/dev/null || true
-"$CHROME" --headless --disable-gpu --window-size=1200,2400 \
-  --screenshot="$PNG_OUT" "$URL" 2>/dev/null || true
-
-if [[ "$CHROME" == /mnt/c/* ]]; then
-  cp "$WINDIR/$NAME.pdf" "$OUT/" 2>/dev/null || true
-  cp "$WINDIR/$NAME.png" "$OUT/" 2>/dev/null || true
-fi
+echo "  rendered with $RENDERED"
 
 python3 - "$OUT/$NAME.pdf" <<'PY'
 import sys, os

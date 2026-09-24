@@ -119,6 +119,9 @@ class BGPHorizonClient:
     def asn_propagation(self, asn: int | str, **p: Any) -> Any:
         return self.get("/asn/propagation", asn=asn, **p)
 
+    def asn_episode(self, asn: int | str, **p: Any) -> Any:
+        return self.get("/asn/episode", asn=asn, **p)
+
     def communities_translate(self, communities: str, **p: Any) -> Any:
         return self.get("/communities/translate", communities=communities, **p)
 
@@ -136,6 +139,9 @@ class BGPHorizonClient:
 
     def prefix_visibility(self, prefix: str, **p: Any) -> Any:
         return self.get("/prefix/visibility", prefix=prefix, **p)
+
+    def prefix_origin_reach(self, prefix: str, **p: Any) -> Any:
+        return self.get("/prefix/origin-reach", prefix=prefix, **p)
 
     # Analytical primitives
 
@@ -181,6 +187,9 @@ class BGPHorizonClient:
 
     def detections_search(self, **p: Any) -> Any:
         return self.get("/detections/search", **p)
+
+    def detections_trends(self, **p: Any) -> Any:
+        return self.get("/detections/trends", **p)
 
     def detections_asn(self, asn: int | str, **p: Any) -> Any:
         return self.get("/detections/asn", asn=asn, **p)

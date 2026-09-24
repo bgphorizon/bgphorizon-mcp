@@ -31,6 +31,22 @@ def warning(code: str, message: str, **fields: Any) -> dict:
     return w
 
 
+def normalize_warnings(raw: Any) -> list[dict]:
+    """API responses carry warnings either as dicts or as "code: message" strings.
+    Return them all as {code, message} dicts so every tool's warnings[] has one shape."""
+    out: list[dict] = []
+    for w in raw or []:
+        if isinstance(w, dict):
+            out.append(w)
+        elif isinstance(w, str):
+            code, sep, msg = w.partition(": ")
+            if sep and code and " " not in code:
+                out.append(warning(code, msg))
+            else:
+                out.append(warning("api_warning", w))
+    return out
+
+
 # -- window parsing ----------------------------------------------------------
 
 def default_window(from_: str | None, to: str | None, *, days: int = 30) -> tuple[str, str]:
@@ -60,6 +76,25 @@ def window_from_shorthand(window: str, *, default_days: int = 30) -> tuple[str, 
     days = parse_duration_days(window, default=default_days)
     end = today()
     return (end - _dt.timedelta(days=days)).isoformat(), end.isoformat()
+
+
+def parse_when(value: str, *, end_of_day: bool = False) -> _dt.datetime:
+    """Parse an RFC3339 timestamp or a YYYY-MM-DD date (UTC). A bare date is the start of the
+    day, or its last second when ``end_of_day``."""
+    v = value.strip()
+    try:
+        if "T" in v:
+            t = _dt.datetime.fromisoformat(v.replace("Z", "+00:00"))
+            return t if t.tzinfo else t.replace(tzinfo=_dt.timezone.utc)
+        d = _dt.date.fromisoformat(v)
+    except ValueError as exc:
+        raise ValueError(f"expected YYYY-MM-DD or an RFC3339 timestamp, got {value!r}") from exc
+    t = _dt.datetime(d.year, d.month, d.day, tzinfo=_dt.timezone.utc)
+    return t + _dt.timedelta(days=1, seconds=-1) if end_of_day else t
+
+
+def rfc3339(t: _dt.datetime) -> str:
+    return t.astimezone(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def parse_target(target: str) -> tuple[str, str]:

@@ -17,6 +17,7 @@ from ..common import (
     default_window,
     meta,
     normalize_asn,
+    today,
     warning,
     window_from_shorthand,
 )
@@ -270,15 +271,29 @@ def register_operator_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
         prefix: str,
         origin_asn: int,
         check_holder: bool = True,
+        as_of: Annotated[Optional[str], Field(description="YYYY-MM-DD: judge against the ROAs and IRR objects published on that day (for a past incident)")] = None,
     ) -> dict:
         """Pre-flight: will announcing `prefix` from `origin_asn` validate? Checks the
-        covering ROA (and max-length), IRR route objects, who announces it today, and
-        (because freshly transferred space keeps the old holder's ROAs) whether the
-        registration changed recently. Returns verdict clear | warn | blocked."""
+        covering ROA (and max-length), IRR route objects, which origins announced it in
+        the last 7 days (or on `as_of`), and (because freshly transferred space keeps the
+        old holder's ROAs) whether the registration changed recently. Returns verdict
+        clear | warn | blocked.
+
+        Without `as_of` the ROA and IRR state is the last two days'. With `as_of` it is
+        that day's, which is what a report about a past incident should cite. For many
+        prefixes at once use `bulk_registry` with `origin_asn`."""
         origin_asn = normalize_asn(origin_asn)
         plen = _plen(prefix)
-        rpki = client.rpki_prefix(prefix)
-        irr = client.irr_prefix(prefix)
+        if as_of:
+            ref_from = ref_to = as_of
+            seen_from = seen_to = as_of
+        else:
+            ref_to = today().isoformat()
+            ref_from = (today() - _dt.timedelta(days=1)).isoformat()
+            seen_to = ref_to
+            seen_from = (today() - _dt.timedelta(days=7)).isoformat()
+        rpki = client.rpki_prefix(prefix, start_date=ref_from, end_date=ref_to)
+        irr = client.irr_prefix(prefix, start_date=ref_from, end_date=ref_to)
 
         records = rpki.get("records", []) or []
         rpki_status: dict[str, Any]
@@ -306,7 +321,9 @@ def register_operator_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
                     "would_be_rejected_by": "any network performing origin validation",
                 }
 
-        irr_records = irr.get("records", []) or []
+        # A windowed lookup already returns only objects present in the window; the filter also
+        # guards against a caller or cache handing back deleted objects.
+        irr_records = [r for r in (irr.get("records", []) or []) if as_of or _shape.irr_is_current(r)]
         irr_origins = {r.get("origin_as") for r in irr_records}
         if not irr_records:
             irr_status = {"status": "missing", "detail": "No route object; IRR-based filters have nothing to match."}
@@ -318,10 +335,10 @@ def register_operator_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
                 "detail": f"IRR route objects name {sorted(o for o in irr_origins if o)}, not AS{origin_asn}.",
             }
 
-        currently = []
+        announced = []
         try:
-            ov = client.prefix_overview(prefix)
-            currently = [o.get("origin_as") for o in (ov.get("origins") or [])]
+            ov = client.prefix_overview(prefix, start_date=seen_from, end_date=seen_to)
+            announced = [o.get("origin_as") for o in (ov.get("origins") or [])]
         except Exception:  # noqa: BLE001
             pass
 
@@ -359,11 +376,15 @@ def register_operator_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
             "origin_asn": origin_asn,
             "rpki": rpki_status,
             "irr": irr_status,
-            "currently_announced_by": [c for c in currently if c is not None],
+            "announced_by": {
+                "window": {"from": seen_from, "to": seen_to},
+                "origins": [c for c in announced if c is not None],
+            },
+            "registry_as_of": {"from": ref_from, "to": ref_to},
             "holder": holder,
             "verdict": verdict,
             "blockers": blockers,
-            "warnings": warns,
+            "warnings": [warning("validation", w) for w in warns],
             "meta": meta("composed"),
         }
 

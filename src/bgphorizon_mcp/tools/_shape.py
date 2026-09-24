@@ -8,7 +8,9 @@ upstream/prepend collapsing) is testable in isolation.
 
 from __future__ import annotations
 
+import datetime as _dt
 import ipaddress
+import json
 from typing import Any
 
 from ..common import prefix_addresses
@@ -37,9 +39,27 @@ def registrant_name(rdap: dict | None) -> str | None:
     return rdap.get("name")
 
 
+def irr_is_current(record: dict, max_age_days: int = 3) -> bool:
+    """IRR history keeps one row per day while an object exists, so a record's `timestamp`
+    is the last day it was present. Older than a few days means the object was deleted;
+    an unwindowed lookup still returns it (102.0.0.0/8's AS37358 object, gone since
+    2023-07-19, was once cited as a live mismatch)."""
+    ts = record.get("timestamp") or record.get("last_seen")
+    if not ts:
+        return True
+    try:
+        t = _dt.datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=_dt.timezone.utc)
+    return (_dt.datetime.now(_dt.timezone.utc) - t).days <= max_age_days
+
+
 def irr_objects(irr: dict | None, observed_origins: set[int]) -> list[dict]:
-    """Flatten IRR records to {origin_as, source, stale}. ``stale`` marks an IRR
-    origin never observed announcing the space."""
+    """Flatten IRR records to {origin_as, source, last_seen, current, stale}. ``current`` is
+    false for objects no longer in the registry; ``stale`` marks an IRR origin never observed
+    announcing the space."""
     if not isinstance(irr, dict):
         return []
     records = irr.get("records") or irr.get("routes_v4") or []
@@ -54,7 +74,7 @@ def irr_objects(irr: dict | None, observed_origins: set[int]) -> list[dict]:
         if key in seen:
             continue
         seen.add(key)
-        obj = {"origin_as": origin, "source": source}
+        obj = {"origin_as": origin, "source": source, "last_seen": r.get("timestamp"), "current": irr_is_current(r)}
         if observed_origins and origin not in observed_origins:
             obj["stale"] = True
         out.append(obj)
@@ -251,3 +271,69 @@ def unrouted_estimate(parent_cidr: str, subprefixes: list[dict]) -> int:
         if cidr:
             covered += prefix_addresses(cidr)
     return max(0, parent - covered)
+
+
+_RIR_HOSTS = {
+    "arin": "ARIN",
+    "ripe": "RIPE NCC",
+    "apnic": "APNIC",
+    "lacnic": "LACNIC",
+    "afrinic": "AFRINIC",
+}
+
+
+def rir_from_rdap(rdap: dict | None) -> str | None:
+    """Which RIR answered the RDAP query, from the server that served it."""
+    if not rdap:
+        return None
+    server = (rdap.get("rdap_server") or rdap.get("RDAPServer") or "").lower()
+    for key, name in _RIR_HOSTS.items():
+        if key in server:
+            return name
+    return None
+
+
+def parse_details(incident: dict) -> None:
+    """Detections carry `details` as a JSON string; expose it as an object in place."""
+    raw = incident.get("details")
+    if isinstance(raw, str) and raw.startswith("{"):
+        try:
+            incident["details"] = json.loads(raw)
+        except ValueError:
+            pass
+
+
+def detections_summary(incidents: list[dict]) -> dict:
+    """Aggregates a report needs from a complete incident list: counts by type x direction,
+    by opening hour, distinct prefixes and counterpart ASNs, and the peer-count spread."""
+    by_type_dir: dict[str, dict[str, int]] = {}
+    by_hour: dict[str, int] = {}
+    prefixes: set[str] = set()
+    counterparts: set[int] = set()
+    peers: list[int] = []
+    for inc in incidents:
+        t = inc.get("detection_type") or "unknown"
+        d = inc.get("direction") or "unknown"
+        by_type_dir.setdefault(t, {})
+        by_type_dir[t][d] = by_type_dir[t].get(d, 0) + 1
+        fs = (inc.get("first_seen") or "")[:13]
+        if fs:
+            by_hour[fs] = by_hour.get(fs, 0) + 1
+        if inc.get("prefix") is not None:
+            prefixes.add(f"{inc.get('prefix')}/{inc.get('prefix_len')}")
+        for a in inc.get("baseline_asns") or []:
+            counterparts.add(a)
+        if isinstance(inc.get("peer_count"), int):
+            peers.append(inc["peer_count"])
+    peers.sort()
+
+    def pct(p: float) -> int | None:
+        return peers[min(len(peers) - 1, int(p * len(peers)))] if peers else None
+
+    return {
+        "by_type_and_direction": by_type_dir,
+        "opened_by_hour": dict(sorted(by_hour.items())),
+        "distinct_prefixes": len(prefixes),
+        "distinct_baseline_asns": len(counterparts),
+        "peer_count": {"min": peers[0] if peers else None, "median": pct(0.5), "max": peers[-1] if peers else None},
+    }
