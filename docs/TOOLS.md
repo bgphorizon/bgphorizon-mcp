@@ -215,7 +215,8 @@ Platform findings, with direction made explicit, paged to completion.
     "prefix_status": { "type": "string" }, "role": { "enum": ["actor","baseline"] },
     "state": { "enum": ["active","resolved"] },
     "max_incidents": { "type": "integer", "default": 1000, "maximum": 5000 },
-    "summary_only": { "type": "boolean", "default": false } },
+    "summary_only": { "type": "boolean", "default": false },
+    "format": { "enum": ["auto","full","compact"], "default": "auto" } },
     "anyOf": [{ "required": ["asn"] }, { "required": ["prefix"] }] } }
 ```
 
@@ -233,6 +234,13 @@ Platform findings, with direction made explicit, paged to completion.
                   "direction": "queried_entity_is_invalid_party",
                   "details": { "origin": 33015, "covering_vrps": [ ... ] } }] }
 ```
+
+`format` controls the incident list. `full` lists each incident with `details`.
+`compact` returns `incidents_compact`: a `columns` list (detection_type, prefix,
+actor_as, baseline_asns, direction, severity, state, first_seen, last_seen,
+peer_count) and one row per incident, without details, about a quarter of the size.
+`auto` is full up to 200 incidents and compact above that, with a
+`compact_incidents` warning. Counts and `summary` are the same in every format.
 
 `direction` is the important field. Values:
 `queried_entity_is_invalid_party` | `queried_entity_is_baseline` | `third_party`.
@@ -474,7 +482,9 @@ originate, and whose space was it? Start here for a hijack or leak report.
     "asn": { "type": "integer" }, "start": { "type": "string" }, "end": { "type": "string" },
     "baseline_days": { "type": "integer", "default": 28 },
     "after_days": { "type": "integer", "default": 3 },
-    "list_prefixes": { "type": "boolean", "default": true } } } }
+    "list_prefixes": { "type": "boolean", "default": true },
+    "min_peers": { "type": "integer", "default": 0 },
+    "max_prefixes": { "type": "integer", "default": 100, "maximum": 5000 } } } }
 ```
 
 ```jsonc
@@ -483,17 +493,29 @@ originate, and whose space was it? Start here for a hijack or leak report.
                "new_own_space": 28, "new_other_space": 419,
                "first_seen": "2026-09-20T09:56:25.000Z", "last_seen": "2026-09-20T10:26:33.000Z",
                "max_peers": 323, "reference_peers": 83,
-               "exact_conflicts": 78, "conflicts": 10179, "conflict_asns": 1483 },
+               "exact_conflicts": 78, "conflicts": 10179, "conflict_asns": 1483,
+               "peer_buckets": [{ "peers": "1-9", "prefixes": 334 }, { "peers": "10-49", "prefixes": 10 },
+                                { "peers": "50-99", "prefixes": 35 }, { "peers": "100-199", "prefixes": 0 },
+                                { "peers": "200+", "prefixes": 40 }] },
   "carriers": [{ "asn": 49666, "prefixes": 419, "is_inferred_provider": true }],
   "holders":  [{ "asn": 25306, "relation": "exact", "prefixes": 42 }],
-  "prefixes": [{ "prefix": "81.28.32.0/23", "space": "other", "exact_origins": [25306],
-                 "first_seen": "2026-09-20T10:03:12.000Z", "peers": 323 }] }
+  "prefixes_available": 447,
+  "prefixes": [{ "prefix": "151.234.128.0/17", "space": "other", "peers": 323,
+                 "first_seen": "2026-09-20T10:03:12.000Z", "conflicts": 35, "conflict_asns": 1 }] }
 ```
 
 `conflicts` counts prefix/origin pairs by other networks equal to or inside the
 other-space prefixes during the episode, which is how public monitors count a
-hijack's reach. Covering holders need 2+ baseline days; default routes and blocks
+hijack's reach. Each other-space prefix also carries its own `conflicts` and
+`conflict_asns` (nested prefixes each count what is under them, so these do not add
+up to the total). Covering holders need 2+ baseline days; default routes and blocks
 shorter than /8 (v4) or /16 (v6) never count.
+
+`peer_buckets` counts other-space prefixes by how many peers saw them, which shows a
+split between widely and narrowly propagated routes at a glance. The listing puts
+other-space prefixes first, most widely seen first, and stops at `max_prefixes`
+(`prefixes_available` is the full count, and a `prefixes_truncated` warning says when
+it was cut). `min_peers` lists only prefixes seen by at least that many peers.
 
 ---
 
@@ -535,7 +557,8 @@ RPKI, IRR and RDAP for many prefixes and ASNs, with an RPKI verdict per prefix.
     "prefixes": { "type": "array", "items": { "type": "string" } },
     "origin_asn": { "type": "integer" },
     "asns": { "type": "array", "items": { "type": "integer" } },
-    "as_of": { "type": "string", "description": "YYYY-MM-DD" } } } }
+    "as_of": { "type": "string", "description": "YYYY-MM-DD" },
+    "summary_only": { "type": "boolean", "default": false } } } }
 ```
 
 ```jsonc
@@ -546,8 +569,14 @@ RPKI, IRR and RDAP for many prefixes and ASNs, with an RPKI verdict per prefix.
 ```
 
 IRR origins list only objects still in the registry; deleted ones appear under
-`irr_deleted_origins`. For a past incident pass `as_of`: four prefixes leaked on
-2026-09-20 gained ROAs the next morning and would otherwise read as RPKI-invalid.
+`irr_deleted_origins`. For a past incident pass `as_of`: holders often publish ROAs
+soon after an incident, and today's ROAs would then call the incident's routes
+RPKI-invalid when at the time they were not found.
+
+`summary` counts the whole set: `prefixes`, `with_roas`, `with_irr_objects`,
+`irr_matches_origin`, `by_rir` and `by_country` (top 15). With `summary_only=true`
+the per-prefix list is replaced by `notable_prefixes`, the ones with a ROA, an IRR
+object naming `origin_asn`, or an error (at most 200).
 Each 200 items is one API request.
 ---
 ---

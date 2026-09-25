@@ -337,3 +337,52 @@ def detections_summary(incidents: list[dict]) -> dict:
         "distinct_baseline_asns": len(counterparts),
         "peer_count": {"min": peers[0] if peers else None, "median": pct(0.5), "max": peers[-1] if peers else None},
     }
+
+
+# Columns of `detections` compact rows, in order.
+COMPACT_INCIDENT_COLUMNS = [
+    "detection_type", "prefix", "actor_as", "baseline_asns", "direction",
+    "severity", "state", "first_seen", "last_seen", "peer_count",
+]
+
+
+def compact_incidents(incidents: list[dict]) -> dict:
+    """One row per incident under a shared column list, without details. The repeated
+    key names are most of a long incident list's size."""
+    rows = []
+    for inc in incidents:
+        prefix = inc.get("prefix")
+        if prefix and "/" not in str(prefix) and inc.get("prefix_len") is not None:
+            prefix = f"{prefix}/{inc['prefix_len']}"
+        row = {**inc, "prefix": prefix}
+        rows.append([row.get(c) for c in COMPACT_INCIDENT_COLUMNS])
+    return {"columns": list(COMPACT_INCIDENT_COLUMNS), "rows": rows}
+
+
+def registry_summary(entries: list[dict]) -> dict:
+    """Counts over bulk_registry prefix entries: ROA and IRR coverage, and prefixes by RIR
+    and by registry country (the 15 most common)."""
+    by_rir: dict[str, int] = {}
+    by_country: dict[str, int] = {}
+    with_roas = with_irr = irr_match = 0
+    for e in entries:
+        if e.get("roas"):
+            with_roas += 1
+        if e.get("irr_origins"):
+            with_irr += 1
+        if e.get("irr_matches_origin"):
+            irr_match += 1
+        rd = e.get("rdap") or {}
+        rir = rd.get("rir") or "unknown"
+        by_rir[rir] = by_rir.get(rir, 0) + 1
+        country = (rd.get("country") or "unknown").upper() if rd.get("country") else "unknown"
+        by_country[country] = by_country.get(country, 0) + 1
+    top = sorted(by_country.items(), key=lambda kv: (-kv[1], kv[0]))[:15]
+    return {
+        "prefixes": len(entries),
+        "with_roas": with_roas,
+        "with_irr_objects": with_irr,
+        "irr_matches_origin": irr_match,
+        "by_rir": dict(sorted(by_rir.items(), key=lambda kv: (-kv[1], kv[0]))),
+        "by_country": dict(top),
+    }

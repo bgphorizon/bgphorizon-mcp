@@ -68,12 +68,15 @@ party, and `complete` before quoting any count.
 transitions. This is where a handover is confirmed or a blip is dismissed.
 4. If one network announced other networks' space in a short window (a suspected \
 hijack or leak): `origin_episode(asn, start, end)` gives the whole event in one call \
-(what was new, whose space, conflicts, carriers, first/last seen). Then \
+(what was new, whose space, conflicts, carriers, first/last seen). Its \
+`summary.peer_buckets` shows whether some prefixes spread widely and others barely; \
+treat those as separate groups, and use each prefix's `conflicts` to say where the \
+conflict total comes from. Then \
 `origin_reach` on two or three of its prefixes for the propagation curve and its \
 phases, `timeline(target="asn:...", granularity="10m")` for the prefix count over \
 time, `paths(prefix, origin_as=...)` for the leaked routes' paths, and \
-`bulk_registry(prefixes, origin_asn=...)` for RPKI/IRR/holder on every prefix rather \
-than a sample. `notable_events(asn=..., start=..., end=...)` shows how the platform \
+`bulk_registry(prefixes, origin_asn=..., as_of=<incident day>, summary_only=true)` for \
+RPKI/IRR/holder on every prefix rather than a sample. `notable_events(asn=..., start=..., end=...)` shows how the platform \
 ranked it.
 5. `identify` any counterpart ASNs/prefixes that surface.
 6. `timeline` / `paths` only if volume or transit structure is part of the finding.

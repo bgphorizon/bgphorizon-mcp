@@ -183,20 +183,20 @@ the same second. A flapping collector session, not routing.
 
 ### Error 3: treating the leaking network as the victim
 
-**What happened.** A detections lookup on AS197207 three days after it leaked
-419 prefixes (including `102.0.0.0/8` for about five minutes) returned incidents
-in which AfriNIC-region networks announced new /22s "carved out of" AS197207's
-space. They read as other networks hijacking AS197207.
+**What happened.** A few days after a network leaked hundreds of prefixes,
+including a whole /8 for a few minutes, a detections lookup on it returned
+incidents in which unrelated networks announced new prefixes "carved out of" its
+space. They read as other networks hijacking it.
 
-**Why it was wrong.** AS197207 never held 102.0.0.0/8. The detector treated
-whoever had ever announced a covering block as its holder, so the five-minute
-leak made AS197207 the holder of everything under it. The fix requires a holder
-to have announced the block for at least a day, and ignores default routes and
-blocks shorter than /8, but older incidents may still carry the artifact.
+**Why it was wrong.** The network never held that /8. The detector treated
+whoever had announced a covering block as its holder, so a few minutes of leak
+made the leaker the holder of everything under it. A holder must now have
+announced the block for at least a day, and default routes and blocks shorter
+than /8 (IPv4) or /16 (IPv6) never count.
 
 **Prevention.** Step 7, plus a check: when the queried network shows up as the
 victim of many unrelated networks in space it does not normally announce,
-confirm it held the covering block with `origin_history` before reporting it.
+confirm with `origin_history` that it held the covering block before reporting it.
 
 ---
 

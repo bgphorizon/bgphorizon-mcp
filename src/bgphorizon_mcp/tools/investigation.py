@@ -30,6 +30,12 @@ from ..common import (
 from . import _shape
 
 
+# Above this many incidents `detections` returns compact rows unless format="full".
+COMPACT_INCIDENTS_ABOVE = 200
+# Most prefixes `bulk_registry(summary_only=True)` lists individually.
+NOTABLE_PREFIXES_MAX = 200
+
+
 def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
 
     # -- identify ------------------------------------------------------------
@@ -228,7 +234,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         chart.
 
         `hour`, `10m` and `1m` read raw events for a window of at most 72 hours; give
-        `start`/`end` as RFC3339 (2026-09-20T09:30:00Z) or dates. For an ASN target the
+        `start`/`end` as RFC3339 (2026-06-27T05:30:00Z) or dates. For an ASN target the
         sub-day points also carry `prefixes`, the number of distinct prefixes it
         originated in each bucket, which is how a short leak shows up.
 
@@ -409,6 +415,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         state: Optional[Literal["active", "resolved"]] = None,
         max_incidents: Annotated[int, Field(ge=1, le=5000)] = 1000,
         summary_only: bool = False,
+        format: Literal["auto", "full", "compact"] = "auto",
     ) -> dict:
         """Platform findings for an ASN or prefix, with direction made explicit.
         `direction` (queried_entity_is_invalid_party | queried_entity_is_baseline |
@@ -418,8 +425,13 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         Pages through the API until `max_incidents` or the end. `complete=true` means
         every matching incident was read, so counts in `summary` are exact; when false,
         do not state a count without narrowing (a shorter window or a `detection_type`)
-        until it is. `summary_only=true` returns the aggregates without the incident list,
-        which keeps large results readable. `details` is returned as an object.
+        until it is. `summary_only=true` returns the aggregates without the incident list.
+        Start with it on a busy entity, then narrow.
+
+        `format`: "full" lists every incident with `details` as an object. "compact"
+        returns `incidents_compact`, one row per incident under a shared column list and
+        without `details`, about a fifth of the size. "auto" (default) is full up to 200
+        incidents and compact above that. Look up a single prefix for the details.
 
         Filters: `detection_type`, `prefix_status` (established | new | new_more_specific
         | returned), `role` for an ASN (actor = it made the claim, baseline = its space
@@ -487,7 +499,18 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
             "meta": meta("registry", total=total),
         }
         if not summary_only:
-            out["incidents"] = incidents
+            if format == "compact" or (format == "auto" and len(incidents) > COMPACT_INCIDENTS_ABOVE):
+                out["incidents_compact"] = _shape.compact_incidents(incidents)
+                if format == "auto":
+                    warnings.append(
+                        warning(
+                            "compact_incidents",
+                            f"{len(incidents)} incidents are returned as compact rows without details. "
+                            "Pass format='full' or narrow the query to see details.",
+                        )
+                    )
+            else:
+                out["incidents"] = incidents
         return out
 
     # -- paths ---------------------------------------------------------------
@@ -907,7 +930,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
     @mcp.tool()
     def events_sample(
         prefix: str,
-        start: Annotated[str, Field(description="YYYY-MM-DD or RFC3339 (2026-09-20T10:00:00Z); window <= 24h")],
+        start: Annotated[str, Field(description="YYYY-MM-DD or RFC3339 (2026-06-27T06:00:00Z); window <= 24h")],
         end: str,
         limit: int = 200,
         origin_as: Optional[int] = None,
@@ -1105,6 +1128,8 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         baseline_days: Annotated[int, Field(ge=7, le=60)] = 28,
         after_days: Annotated[int, Field(ge=0, le=14)] = 3,
         list_prefixes: bool = True,
+        min_peers: Annotated[int, Field(ge=0)] = 0,
+        max_prefixes: Annotated[int, Field(ge=1, le=5000)] = 100,
     ) -> dict:
         """What did this ASN originate during a short window (up to 7 days) that it does
         not originate normally, and whose space was it? The first call for a suspected
@@ -1121,7 +1146,17 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         shorter than /8 or /16 never count as holders.
 
         The summary counts conflicts the way public hijack monitors do: prefix and origin
-        pairs by other ASes equal to or inside the leaked prefixes during the episode.
+        pairs by other ASes equal to or inside the leaked prefixes during the episode. Each
+        other-space prefix also carries its own `conflicts` and `conflict_asns`, so you can
+        see which prefixes the total comes from (nested prefixes each count what is under
+        them, so these do not add up to the total).
+
+        `summary.peer_buckets` counts the other-space prefixes by how many peers saw them. A
+        leak that spread widely for some prefixes and barely for others shows as two groups.
+
+        The listing puts other-space prefixes first, most widely seen first, and stops at
+        `max_prefixes`. `min_peers` lists only prefixes seen by at least that many peers.
+        Summary figures always cover every prefix.
         `carriers` are the ASes that passed the routes on, marked when one is an inferred
         provider of the ASN.
 
@@ -1133,6 +1168,8 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         params: dict[str, Any] = {"from": start, "baseline_days": baseline_days, "after_days": after_days}
         if end:
             params["to"] = end
+        if min_peers:
+            params["min_peers"] = min_peers
         resp = client.asn_episode(normalize_asn(asn), **params)
         warnings = normalize_warnings(resp.get("warnings"))
         summ = resp.get("summary") or {}
@@ -1153,7 +1190,18 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
             "meta": meta("rollup"),
         })
         if list_prefixes:
-            out["prefixes"] = resp.get("prefixes") or []
+            listed = resp.get("prefixes") or []
+            out["prefixes_available"] = len(listed)
+            if len(listed) > max_prefixes:
+                warnings.append(
+                    warning(
+                        "prefixes_truncated",
+                        f"Listing {max_prefixes} of {len(listed)} prefixes, most widely seen first. "
+                        "Raise max_prefixes or set min_peers to see others; the summary covers all.",
+                    )
+                )
+                listed = listed[:max_prefixes]
+            out["prefixes"] = listed
         return out
 
     # -- origin_reach --------------------------------------------------------
@@ -1161,7 +1209,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
     def origin_reach(
         prefix: str,
         origin_as: int,
-        start: Annotated[str, Field(description="RFC3339 (2026-09-20T09:50:00Z) or YYYY-MM-DD")],
+        start: Annotated[str, Field(description="RFC3339 (2026-06-27T05:50:00Z) or YYYY-MM-DD")],
         end: str,
         interval_seconds: Annotated[int, Field(ge=10, le=3600)] = 60,
     ) -> dict:
@@ -1227,6 +1275,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         origin_asn: Optional[int] = None,
         asns: Optional[list[int]] = None,
         as_of: Annotated[Optional[str], Field(description="YYYY-MM-DD: judge RPKI/IRR against that day's data")] = None,
+        summary_only: bool = False,
     ) -> dict:
         """RPKI, IRR and RDAP for many prefixes and ASNs in one go (batched 200 at a time).
         For each prefix: covering ROAs and, when `origin_asn` is given, the RPKI verdict
@@ -1236,10 +1285,15 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         episode instead of sampling a handful.
 
         For a past incident always pass `as_of` (the incident day). Without it RPKI/IRR
-        reflect the last 30 days, and holders often publish ROAs right after an incident:
-        four prefixes AS197207 leaked on 2026-09-20 gained ROAs the next morning, and read
-        against current data would wrongly show as RPKI-invalid at the time. RDAP is always
-        the current record."""
+        reflect the last 30 days. Holders often publish ROAs soon after an incident, and
+        today's ROAs would then call the incident's routes RPKI-invalid when at the time
+        they were not found. RDAP is always the current record.
+
+        `summary` gives counts for the whole set: ROA coverage, IRR objects, the RPKI
+        verdicts when `origin_asn` is given, and prefixes by RIR and country. With
+        `summary_only=true` the per-prefix list is replaced by `notable_prefixes`: only the
+        ones with a ROA, an IRR object naming `origin_asn`, or an error. Use it for a few
+        hundred prefixes."""
         prefixes = [p.strip() for p in (prefixes or []) if p and p.strip()]
         asn_list = [normalize_asn(a) for a in (asns or [])]
         if not prefixes and not asn_list:
@@ -1333,4 +1387,20 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
             )
         if origin is not None:
             out["rpki_summary"] = {"origin_asn": origin, **counts, "checked": len(pfx_out)}
+        out["summary"] = _shape.registry_summary(pfx_out)
+        if summary_only:
+            notable = [
+                e for e in pfx_out
+                if e.get("roas") or e.get("irr_matches_origin") or e.get("error")
+            ]
+            out["notable_prefixes"] = notable[:NOTABLE_PREFIXES_MAX]
+            if len(notable) > NOTABLE_PREFIXES_MAX:
+                out["warnings"].append(
+                    warning(
+                        "notable_truncated",
+                        f"Listing {NOTABLE_PREFIXES_MAX} of {len(notable)} notable prefixes; "
+                        "the summary covers all.",
+                    )
+                )
+            del out["prefixes"]
         return out
