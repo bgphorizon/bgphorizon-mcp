@@ -50,6 +50,10 @@ def test_detection_direction_offender_vs_victim():
     assert _shape.detection_direction(inc_hijack, 54994) == "queried_entity_is_baseline"
     # querying an unrelated party
     assert _shape.detection_direction(inc_hijack, 999) == "third_party"
+    # a network announcing inside its own space is neither victim nor offender
+    inc_self = {"actor_as": 197207, "baseline_asns": [197207]}
+    assert _shape.detection_direction(inc_self, 197207) == "queried_entity_announced_own_space"
+    assert _shape.detection_direction(inc_self, 999) == "third_party"
     # no asn context → no direction
     assert _shape.detection_direction(inc_hijack, None) is None
 

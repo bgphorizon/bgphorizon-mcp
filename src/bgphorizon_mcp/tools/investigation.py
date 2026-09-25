@@ -419,8 +419,9 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
     ) -> dict:
         """Platform findings for an ASN or prefix, with direction made explicit.
         `direction` (queried_entity_is_invalid_party | queried_entity_is_baseline |
-        third_party) tells you whether the queried entity is the offender or the
-        victim. Reading actor_as against baseline_asns by hand inverts conclusions.
+        queried_entity_announced_own_space | third_party) tells you whether the queried
+        entity is the offender, the victim, or changing routes inside its own space.
+        Reading actor_as against baseline_asns by hand inverts conclusions.
 
         Pages through the API until `max_incidents` or the end. `complete=true` means
         every matching incident was read, so counts in `summary` are exact; when false,

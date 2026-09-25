@@ -153,6 +153,11 @@ def detection_direction(incident: dict, asn: int | None) -> str | None:
         return None
     baseline = incident.get("baseline_asns") or []
     actor = incident.get("actor_as")
+    if actor == asn and asn in baseline:
+        # Announcer and holder are the same network: its own routing change (a new
+        # more-specific of its own block, a route longer than its own ROA allows),
+        # not someone else taking its space.
+        return "queried_entity_announced_own_space"
     if asn in baseline:
         return "queried_entity_is_baseline"
     if actor == asn:

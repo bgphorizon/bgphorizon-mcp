@@ -243,7 +243,10 @@ peer_count) and one row per incident, without details, about a quarter of the si
 `compact_incidents` warning. Counts and `summary` are the same in every format.
 
 `direction` is the important field. Values:
-`queried_entity_is_invalid_party` | `queried_entity_is_baseline` | `third_party`.
+`queried_entity_is_invalid_party` | `queried_entity_is_baseline` |
+`queried_entity_announced_own_space` | `third_party`. The own-space value is a network
+announcing inside space it already holds (for example a new, smaller prefix of its
+own block); it is neither the victim nor the offender.
 
 Reading `actor_as` against `baseline_asns` incorrectly inverts a report's
 conclusion: a court appeared to be a hijack victim when its own announcements

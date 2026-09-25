@@ -43,7 +43,10 @@ error made in a past report where a court's own invalid announcements made it lo
 like the target of a hijack.
 
 The `detections` tool computes an explicit `direction` field to remove this trap:
-`queried_entity_is_invalid_party` | `queried_entity_is_baseline` | `third_party`.
+`queried_entity_is_invalid_party` | `queried_entity_is_baseline` |
+`queried_entity_announced_own_space` | `third_party`. The own-space value is a network
+announcing inside space it already holds (for example a new, smaller prefix of its
+own block); it is neither the victim nor the offender.
 
 ## Severity levels
 
