@@ -20,7 +20,7 @@ matters is change. Each type therefore carries two severities (anomalous / stead
 | `path_loop` | The same ASN appears at non-adjacent path positions | medium / low | high |
 | `first_as_violation` | The peer that exported the route is not the first AS in the path | medium / low | medium |
 | `moas_conflict` | Two or more ASNs originate the same prefix concurrently | high / info | medium |
-| `origin_mismatch_new` | A (prefix, origin) pairing that has never existed before (high), returns after 30+ days dormant (medium), or is a new more-specific inside a block the same network already announces (info, `self_more_specific: true`) | high, medium or info / – | medium |
+| `origin_mismatch_new` | A (prefix, origin) pairing that has never existed before (high), returns after 30+ days dormant (medium), or is a new more-specific inside a block the same network already announces (info, `self_more_specific: true`) | high, medium or info / none | medium |
 
 `moas_conflict` and `origin_mismatch_new` are the hijack-shaped detections, hence
 high anomalous severity. Steady MOAS is almost always anycast or intentional

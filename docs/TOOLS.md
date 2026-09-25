@@ -177,6 +177,31 @@ Accepts multiple prefixes so multi-prefix events resolve in one call.
 
 ---
 
+## `global_reach`
+
+How widely a prefix is seen, over 30 days.
+
+```jsonc
+{ "name": "global_reach",
+  "inputSchema": { "type": "object", "required": ["prefix"], "properties": {
+    "prefix": { "type": "string" } } } }
+```
+
+```jsonc
+{ "prefix": "8.8.8.0/24", "reach_pct": 87, "class": "global",
+  "seen_feeds": 222, "total_feeds": 253, "window_days": 30,
+  "regions": [{ "region": "Europe", "seen": 121, "feeds": 136, "baseline": 128, "pct": 94 },
+              { "region": "North America", "seen": 36, "feeds": 46, "baseline": 44, "pct": 81 }] }
+```
+
+Only full-table feeds count, so `seen_feeds` never exceeds `total_feeds`. Each feed belongs
+to one collector region, and the regions add up to the totals. A region's `pct` is `seen`
+over `baseline`, the number of that region's feeds a widely routed prefix typically
+reaches, so 100% means as visible there as a typical global route. Region is where the
+collector sits, not where the announcing network is.
+
+---
+
 ## `detections`
 
 Platform findings, with direction made explicit, paged to completion.

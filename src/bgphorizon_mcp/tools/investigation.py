@@ -379,7 +379,10 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         tight time span). This answers "is this prefix propagated worldwide, or only in some
         regions?". A regional or local result can indicate a route leak, upstream filtering, or
         limited propagation. Region reflects the observing collector's location (a vantage proxy),
-        not the announcing network's geography."""
+        not the announcing network's geography. Each feed counts in one region, so a region's
+        ``seen`` never exceeds its ``feeds``. A region's ``pct`` is ``seen`` over ``baseline``
+        (the feeds there a widely routed prefix typically reaches), so 100% means as visible as a
+        typical global route in that region."""
         v = client.prefix_visibility(prefix)
         return {
             "prefix": v.get("prefix", prefix),
