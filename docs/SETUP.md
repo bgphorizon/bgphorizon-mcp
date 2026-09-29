@@ -45,6 +45,41 @@ source install above or the hosted endpoint.
 
 ---
 
+## Hosted endpoint
+
+`https://bgphorizon.com/mcp` runs this server for you. Nothing to install.
+
+### Sign in (OAuth)
+
+Clients that support MCP sign-in only need the URL. The first time they
+connect, the server answers 401 and the client opens a BGPHorizon page where you
+sign in and click **Allow**.
+
+- **Claude Desktop and claude.ai:** Settings → Connectors → Add custom
+  connector, URL `https://bgphorizon.com/mcp`.
+- **Claude Code:** `claude mcp add --transport http bgphorizon https://bgphorizon.com/mcp`,
+  then `/mcp`, select `bgphorizon`, and choose **Authenticate**.
+- **Cursor, VS Code and other clients with MCP sign-in:**
+  `{ "mcpServers": { "bgphorizon": { "url": "https://bgphorizon.com/mcp" } } }`
+
+Signing in issues an ordinary `bgps_` key, named after the client, that appears
+in your API tab. It counts toward your daily API allowance, lasts 90 days, and
+revoking it disconnects the client. When it expires the client asks you to sign
+in again. Signing in again from the same client replaces its previous key. The
+account needs API access; without it the consent page refuses.
+
+### API key
+
+Scripts, agents and clients without MCP sign-in send a key from the API tab as
+`Authorization: Bearer bgps_...`:
+
+```bash
+claude mcp add --transport http bgphorizon https://bgphorizon.com/mcp \
+  --header "Authorization: Bearer bgps_xxx"
+```
+
+---
+
 ## Choosing a transport
 
 | Transport | Use for | Flag |
@@ -102,29 +137,84 @@ Prompts surface as slash commands: `/bgphorizon:audit_my_network`,
 
 ## Claude Desktop
 
-Edit `claude_desktop_config.json`:
+### Hosted endpoint, with sign-in (recommended)
 
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-- Linux: `~/.config/Claude/claude_desktop_config.json`
+Settings → Connectors → Add custom connector, and enter
+`https://bgphorizon.com/mcp`. A BGPHorizon page opens; sign in and click
+**Allow**. This needs no Node.js, no config file and no key to copy. See
+[Hosted endpoint](#hosted-endpoint).
+
+The config-file setups below are for a fixed API key or a self-hosted server.
+Claude Desktop's config file only starts local processes: it skips a remote
+`url` + `headers` entry as "not a valid MCP server configuration", so both
+options run something locally.
+
+Open the config file from **Settings → Developer → Edit Config**. That opens the
+right file on every install, including the Microsoft Store build on Windows,
+which keeps it under `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude\`
+rather than `%APPDATA%\Claude\`. Add the `mcpServers` block alongside whatever is
+already in the file.
+
+### Hosted endpoint with an API key, via mcp-remote (needs Node.js)
+
+[`mcp-remote`](https://www.npmjs.com/package/mcp-remote) bridges the local
+process to `https://bgphorizon.com/mcp` and adds your key to each request.
+Install [Node.js](https://nodejs.org) (LTS) first; `npx` comes with it.
 
 ```json
 {
   "mcpServers": {
     "bgphorizon": {
-      "command": "bgphorizon-mcp",
+      "command": "npx",
+      "args": [
+        "-y", "mcp-remote",
+        "https://bgphorizon.com/mcp",
+        "--header", "Authorization:${BGPHORIZON_AUTH}"
+      ],
+      "env": { "BGPHORIZON_AUTH": "Bearer bgps_xxx" }
+    }
+  }
+}
+```
+
+Keep the key in `env` and leave no space after `Authorization:`. Claude Desktop
+on Windows mangles arguments that contain spaces, so
+`"Authorization: Bearer bgps_xxx"` written directly into `args` fails.
+
+### Self-hosted, via uv (needs uv)
+
+Clone and `uv sync` as in [Install](#install), then:
+
+```json
+{
+  "mcpServers": {
+    "bgphorizon": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/bgphorizon-mcp", "bgphorizon-mcp"],
       "env": { "BGPHORIZON_API_KEY": "bgps_xxx" }
     }
   }
 }
 ```
 
-Restart Claude Desktop fully (quit, don't just close the window). The tools appear
-under the connector icon in the composer.
+On Windows, write the directory with doubled backslashes:
+`"C:\\Users\\you\\bgphorizon-mcp"`.
 
-> Use an absolute path (`/usr/local/bin/bgphorizon-mcp`) if the binary isn't on
-> the GUI app's `PATH`, the most common cause of a server that silently fails to
-> start on macOS.
+### Restart and verify
+
+Quit Claude Desktop fully and reopen it. On Windows, quit from the system tray;
+closing the window leaves it running. The tools appear under the connector icon
+in the composer.
+
+| Message | Cause | Fix |
+|---|---|---|
+| "not valid MCP server configurations and were skipped" | A `url` entry | Use the connector, or one of the two configs above |
+| "couldn't start … command wasn't found" | Node.js or uv not installed, or not on the app's `PATH` | Install it, then restart the app. If it is installed, use the full path: `"C:\\Program Files\\nodejs\\npx.cmd"` on Windows, the output of `which npx` / `which uv` on macOS |
+| Server starts, every tool call returns 401 | Key missing or mistyped | Check the `env` value, including the `Bearer ` prefix for mcp-remote |
+
+Claude Desktop writes each server's output to `mcp-server-bgphorizon.log` in its
+`logs` folder, next to the config file. Read that first when a server will not
+connect.
 
 ---
 
@@ -288,6 +378,17 @@ location /mcp {
 
 `proxy_buffering off` is required. With it on, streamed responses arrive only
 after the request completes, which looks exactly like a hung server.
+
+
+Requests to `/mcp` without a live bearer token get an HTTP 401 with a
+`WWW-Authenticate` header pointing at
+`<public origin>/.well-known/oauth-protected-resource/mcp`. The server checks
+tokens against `<BGPHORIZON_API_URL>/oauth/tokeninfo` and caches the answer for
+60 seconds. Set `BGPHORIZON_PUBLIC_URL` to the origin clients use (for example
+`https://mcp.example.com`) when the server sits behind a proxy; without it the
+origin is taken from `X-Forwarded-Proto` and `Host`. Sign-in only works against
+bgphorizon.com, which serves the OAuth metadata. A self-hosted HTTP server
+pointed elsewhere still accepts API keys.
 
 ---
 

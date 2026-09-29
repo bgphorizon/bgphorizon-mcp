@@ -63,3 +63,28 @@ def build_server(
     # Stash the client so the CLI can close it on shutdown / use it in selftest.
     mcp._bgphorizon_client = client  # type: ignore[attr-defined]
     return mcp
+
+
+def run_http(mcp: FastMCP, settings: Settings) -> None:
+    """Serve the streamable-HTTP transport behind the bearer-token gate.
+
+    Same as ``mcp.run(transport="streamable-http")``, except that a request
+    without a live token gets an HTTP 401 pointing at the OAuth metadata, which
+    is how clients know to sign the user in. See ``auth.py``.
+    """
+    import uvicorn
+
+    from .auth import BearerGate
+
+    app = BearerGate(
+        mcp.streamable_http_app(),
+        api_url=settings.api_url,
+        public_url=settings.public_url,
+        mcp_path=mcp.settings.streamable_http_path,
+    )
+    uvicorn.run(
+        app,
+        host=mcp.settings.host,
+        port=mcp.settings.port,
+        log_level=mcp.settings.log_level.lower(),
+    )

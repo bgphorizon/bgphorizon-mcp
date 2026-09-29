@@ -16,7 +16,7 @@ import sys
 from . import __version__
 from .client import APIError
 from .config import load_settings
-from .server import build_server
+from .server import build_server, run_http
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -132,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.transport == "http":
-            mcp.run(transport="streamable-http")
+            run_http(mcp, settings)
         else:
             mcp.run(transport="stdio")
     finally:

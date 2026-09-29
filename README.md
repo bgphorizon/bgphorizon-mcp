@@ -42,12 +42,28 @@ You can either use the **hosted** endpoint (nothing to install) or **self-host**
 (this repo). Both authenticate with the same `bgps_` API key and go through the
 same metered `/api/v1`.
 
-### Hosted endpoint (no install)
+### Hosted endpoint, with sign-in (no install, no key)
+
+Clients that support MCP sign-in (OAuth) only need the URL; they open a
+BGPHorizon page where you sign in and click **Allow**.
+
+- **Claude Desktop and claude.ai:** Settings → Connectors → Add custom
+  connector → `https://bgphorizon.com/mcp`.
+- **Claude Code:** `claude mcp add --transport http bgphorizon https://bgphorizon.com/mcp`,
+  then `/mcp` → `bgphorizon` → **Authenticate**.
+- **Cursor, VS Code and others:** `{ "mcpServers": { "bgphorizon": { "url": "https://bgphorizon.com/mcp" } } }`
+
+Access lasts 90 days and shows up as a key in your API tab, where you can
+revoke it.
+
+### Hosted endpoint, with an API key
 
 ```bash
 claude mcp add --transport http bgphorizon https://bgphorizon.com/mcp \
   --header "Authorization: Bearer bgps_xxx"
 ```
+
+Cursor, and other clients whose config accepts a remote `url`:
 
 ```json
 {
@@ -60,6 +76,31 @@ claude mcp add --transport http bgphorizon https://bgphorizon.com/mcp \
 }
 ```
 
+Claude Desktop does not accept a `url` entry in its config file. Use the
+connector above, or, to use a fixed key, bridge to the hosted endpoint with
+[`mcp-remote`](https://www.npmjs.com/package/mcp-remote), which needs
+[Node.js](https://nodejs.org):
+
+```json
+{
+  "mcpServers": {
+    "bgphorizon": {
+      "command": "npx",
+      "args": [
+        "-y", "mcp-remote",
+        "https://bgphorizon.com/mcp",
+        "--header", "Authorization:${BGPHORIZON_AUTH}"
+      ],
+      "env": { "BGPHORIZON_AUTH": "Bearer bgps_xxx" }
+    }
+  }
+}
+```
+
+Keep the key in `env` with no space after `Authorization:`; Claude Desktop on
+Windows breaks arguments that contain spaces. See
+[`docs/SETUP.md`](docs/SETUP.md#claude-desktop) for troubleshooting.
+
 ### Self-hosted with Claude Code
 
 ```bash
@@ -67,19 +108,22 @@ claude mcp add bgphorizon --env BGPHORIZON_API_KEY=bgps_xxx \\
   -- uv run --directory /path/to/bgphorizon-mcp bgphorizon-mcp
 ```
 
-### Claude Desktop / Cursor / Zed (`mcpServers` block)
+### Self-hosted with Claude Desktop / Cursor (`mcpServers` block)
 
 ```json
 {
   "mcpServers": {
     "bgphorizon": {
-      "command": "uvx",
-      "args": ["bgphorizon-mcp"],
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/bgphorizon-mcp", "bgphorizon-mcp"],
       "env": { "BGPHORIZON_API_KEY": "bgps_xxx" }
     }
   }
 }
 ```
+
+The package is not on PyPI yet, so `uvx bgphorizon-mcp` will not resolve. On
+Windows, write the directory with doubled backslashes (`"C:\\Users\\you\\bgphorizon-mcp"`).
 
 Point at a non-production API with `"BGPHORIZON_API_URL"` in the same `env` block.
 

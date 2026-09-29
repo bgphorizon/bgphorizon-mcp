@@ -8,6 +8,10 @@ any MCP client's ``env`` block:
 - ``BGPHORIZON_API_URL``: base URL of the BGPHorizon site (default production).
 - ``BGPHORIZON_LOG_LEVEL``: DEBUG | INFO | WARNING | ERROR (default INFO).
 - ``BGPHORIZON_TIMEOUT``: per-request timeout in seconds (default 30).
+- ``BGPHORIZON_PUBLIC_URL``: HTTP transport only. The public origin clients reach
+  this server through (e.g. ``https://bgphorizon.com``), used in the 401 that
+  starts OAuth sign-in. Default: worked out from each request's forwarded
+  headers. Set it when the server sits behind a proxy.
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ class Settings:
     api_url: str
     timeout: float
     log_level: str
+    public_url: str | None = None
 
     @property
     def api_base(self) -> str:
@@ -53,4 +58,5 @@ def load_settings(
         api_url=resolved_url,
         timeout=timeout,
         log_level=os.environ.get("BGPHORIZON_LOG_LEVEL", "INFO").upper(),
+        public_url=os.environ.get("BGPHORIZON_PUBLIC_URL") or None,
     )

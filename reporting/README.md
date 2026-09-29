@@ -94,12 +94,10 @@ mkdir -p .claude && cp path/to/reporting/SYSTEM-PROMPT.md .claude/CLAUDE.md
 ```
 
 ### Claude Desktop
-1. **Connect**: add to `claude_desktop_config.json`:
-   ```json
-   { "mcpServers": { "bgphorizon": {
-       "url": "https://bgphorizon.com/mcp",
-       "headers": { "Authorization": "Bearer bgps_your_key" } } } }
-   ```
+1. **Connect**: Settings → Connectors → Add custom connector, URL
+   `https://bgphorizon.com/mcp`, then sign in to BGPHorizon and click **Allow**.
+   To use a fixed API key instead, see
+   [`../docs/SETUP.md`](../docs/SETUP.md#claude-desktop).
 2. **Method**: paste `SYSTEM-PROMPT.md` into a Project's custom instructions (or the
    top of the chat).
 3. **Report**: pick the **write_report** prompt from the connector's prompt menu, or
