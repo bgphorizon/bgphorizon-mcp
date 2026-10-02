@@ -13,6 +13,7 @@ from urllib.parse import quote
 
 import httpx
 
+from .common import record_api_warnings
 from .config import Settings
 
 
@@ -93,7 +94,10 @@ class BGPHorizonClient:
             raise APIError(resp.status_code, _error_text(resp), path=path)
         if not resp.content:
             return {}
-        return resp.json()
+        data = resp.json()
+        if isinstance(data, dict) and data.get("warnings"):
+            record_api_warnings(data["warnings"])
+        return data
 
     def get(self, path: str, **params: Any) -> Any:
         return self._request("GET", path, params=_clean(params))
@@ -115,6 +119,9 @@ class BGPHorizonClient:
 
     def asn_relationships(self, asn: int | str, **p: Any) -> Any:
         return self.get("/asn/relationships", asn=asn, **p)
+
+    def asn_prefix_transit(self, asn: int | str, **p: Any) -> Any:
+        return self.get("/asn/prefix-transit", asn=asn, **p)
 
     def asn_propagation(self, asn: int | str, **p: Any) -> Any:
         return self.get("/asn/propagation", asn=asn, **p)
@@ -142,6 +149,9 @@ class BGPHorizonClient:
 
     def prefix_origin_reach(self, prefix: str, **p: Any) -> Any:
         return self.get("/prefix/origin-reach", prefix=prefix, **p)
+
+    def prefix_upstreams(self, prefix: str, **p: Any) -> Any:
+        return self.get("/prefix/upstreams", prefix=prefix, **p)
 
     # Analytical primitives
 
@@ -174,11 +184,21 @@ class BGPHorizonClient:
     def irr_asn(self, asn: int | str, **p: Any) -> Any:
         return self.get("/irr/asn", asn=asn, **p)
 
-    def rdap_prefix(self, prefix: str) -> Any:
-        return self.get("/rdap/prefix", prefix=prefix)
+    def rdap_prefix(self, prefix: str, live: bool = True) -> Any:
+        # live=False answers from cached records and stored names only, without a
+        # live registry lookup (those count against the account's daily allowance).
+        if live:
+            return self.get("/rdap/prefix", prefix=prefix)
+        return self.get("/rdap/prefix", prefix=prefix, live="false")
 
     def rdap_asn(self, asn: int | str) -> Any:
         return self.get("/rdap/asn", asn=asn)
+
+    def prefix_geo_ingress(self, prefix: str) -> Any:
+        return self.get("/prefix/geo-communities", prefix=prefix)
+
+    def asn_geo_ingress(self, asn: int | str) -> Any:
+        return self.get("/asn/geo-communities", asn=asn)
 
     def peeringdb_asn(self, asn: int | str) -> Any:
         return self.get("/peeringdb/asn", asn=asn)

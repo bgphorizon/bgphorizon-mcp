@@ -19,12 +19,14 @@ matters is change. Each type therefore carries two severities (anomalous / stead
 | `unallocated_as_in_path` | A path ASN has never been allocated by any RIR | medium / low | high |
 | `path_loop` | The same ASN appears at non-adjacent path positions | medium / low | high |
 | `first_as_violation` | The peer that exported the route is not the first AS in the path | medium / low | medium |
-| `moas_conflict` | Two or more ASNs originate the same prefix concurrently | high / info | medium |
+| `moas_conflict` | Two or more ASNs originate the same prefix concurrently. Severity when anomalous depends on how the new origin relates to the usual one: none or only an adjacency (high), provider or customer (medium), same organization (low); `details.related_to` records it | high, medium or low / info | medium |
 | `origin_mismatch_new` | A (prefix, origin) pairing that has never existed before (high), returns after 30+ days dormant (medium), or is a new more-specific inside a block the same network already announces (info, `self_more_specific: true`) | high, medium or info / none | medium |
 
 `moas_conflict` and `origin_mismatch_new` are the hijack-shaped detections, hence
 high anomalous severity. Steady MOAS is almost always anycast or intentional
-multihoming. An `origin_mismatch_new` at info severity is a network deaggregating
+multihoming. A medium or low MOAS is still anomalous (it alerts) but the new origin is
+the usual origin's provider, customer or sibling network, so describe it as a
+possibly unannounced arrangement, not a hijack, and name the relation. An `origin_mismatch_new` at info severity is a network deaggregating
 its own space; do not describe it as a hijack. For such an incident the actor also
 appears in `baseline_asns`, so `direction` reads `queried_entity_is_baseline`
 when you query that network: it is both parties.

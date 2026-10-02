@@ -244,8 +244,12 @@ guessing."""
         return f"""Audit AS{asn.lstrip('AS').lstrip('as')} over the last {window} and produce a \
 prioritized remediation list a network engineer can act on.
 
-1. `health_check(asn=...)`. This is the audit: RPKI/IRR coverage, MOAS, ROA \
-max-length exposure, transit diversity, visibility, unrouted space.
+1. `health_check(asn=...)`. This is the audit: RPKI/IRR coverage, RPKI-invalid \
+routes, MOAS, ROA max-length exposure, transit, visibility, unrouted space. By \
+default each finding lists the rows that need action and summarizes the rest \
+(`breakdown`, `other_examples`); read the `note` and use `detail="full"` only if you \
+need every row. A `selective` transit row (one neighbor while the network has many) \
+is usually deliberate; only `single_homed` is a single point of failure.
 2. `path_diversity(asn=...)`: is transit redundant, or does most of the \
 internet reach this network through a single upstream? A dominant branch near 100% \
 is a single-point-of-failure worth flagging even when two upstreams are configured. \

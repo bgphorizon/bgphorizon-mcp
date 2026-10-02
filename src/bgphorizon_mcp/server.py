@@ -19,15 +19,21 @@ INSTRUCTIONS = """\
 BGPHorizon exposes global BGP routing data: routing history, prefix/ASN \
 analysis, RPKI/IRR/RDAP/PeeringDB, and routing-anomaly detections.
 
-Two habits keep conclusions correct:
+Three habits keep conclusions correct:
 1. Persistence before narrative. A prefix seen on 2 of 60 days is transient, not a \
 migration. Trust the server's `classification` and `origin_history`, never a bare \
 `first_seen`.
 2. Attribution before alarm. Check `concentration`/`single_vantage_point` warnings; \
 a spike from one collector peer is a measurement artifact, not a routing event. Call \
 `platform_baseline` before calling anything anomalous.
+3. Reach and identity before blame. Check how far a route actually spread \
+(`origin_reach`; `direct_session_only` means only the origin's own collector session \
+saw it) and that the announcer is a real network (`announcing_as_allocated: false` \
+means a forged or corrupted origin) before naming a culprit. A MOAS origin with \
+`related_to` is most likely intended.
 
-Every response includes `warnings[]` and `meta`. Read the warnings.
+Every response includes `warnings[]` and `meta`. Read the warnings: a \
+`partial_result` means part of the data could not be read, not that it is zero.
 
 Writing anything up for a person: read `bgphorizon://reference/writing-guide` and \
 `bgphorizon://reference/qa-checklist` BEFORE drafting, and follow them. They are \

@@ -22,6 +22,32 @@ during research.
       table that had never been checked; both happened to be right, which is worse.
 - [ ] **Entities appear only if verified.** One ASN sat in a draft table without a
       single lookup.
+- [ ] **Warnings read and carried.** A `partial_result` means part of the data
+      could not be read: ask again, or say what is missing. Never report the missing
+      part as zero. `window_before_data`, `reduced_vantage_points` and
+      `history_limited` belong in the limits section.
+- [ ] **Announcers are networks.** An origin no registry has allocated
+      (`announcing_as_allocated: false`, `unallocated_announcer`) is a forged or
+      corrupted origin, not a network. Name the network that sent the route, the AS
+      before it in the path, never the fake number. AS199524 announces its own
+      141.11.161.0/24 twice a day under a different random unallocated origin.
+- [ ] **Reach established, not assumed.** A route seen only on the origin's own
+      session with a route collector (`direct_session_only`,
+      `propagated_sessions: 0`) never spread. Do not describe it as reaching the
+      internet or as affecting anyone else's traffic.
+- [ ] **Transit shares from sessions.** Quote `upstreams` (collector sessions per
+      upstream), never path `count` (update volume). One noisy peer made two small
+      networks look like 70% of 1.1.1.0/24's upstream mix; by session they were
+      under 4% each.
+- [ ] **Single-homed confirmed.** A transit row marked `neighbors_uncertain` may
+      have a prepended backup provider. Check `paths` before calling it a single
+      point of failure.
+- [ ] **Registration evidence graded.** RDAP `approximate: true` is the containing
+      block, so a more specific reassignment may exist. A `name_fallback` (or
+      `name_source` other than `rdap`) is an IRR or PeeringDB name, not the
+      registration. `lookup` / `rdap_lookup` of `limit_reached` or `unavailable`
+      means the registration was not fetched this time: say so instead of
+      presenting the stored name as the registrant.
 
 Machine-check it:
 
@@ -45,6 +71,9 @@ for prefix, v in src['prefixes'].items():
 - [ ] **Limits stated**: data floor, collector sampling, sample size.
 - [ ] **Corrections recorded** if the analysis changed.
 - [ ] **Severity not inflated.** If routine, say routine.
+- [ ] **Related origins framed as such.** A MOAS origin with `related_to` (same
+      organization, provider or customer of a usual origin) is likely intended:
+      report it as something to confirm, not as a hijack.
 - [ ] **Unverified relationships excluded or explicitly flagged.** The
       Meteverse↔CDNetworks link was left as "indicated, not established".
 
@@ -143,3 +172,6 @@ Kept as evidence that the pass is not ceremonial.
 | Ellipsis glyph unreadable in mono column | §5 render |
 | Em-dashes and "not X but Y" throughout a draft | §6 style lint |
 | Inventory row using rollup while others used raw | §1 one data path |
+| A fake ASN named as the network taking G-Core's space | §1 announcers are networks |
+| A hijack described as spreading that only the origin's own collector session saw | §1 reach established |
+| A backup provider missed, so a network read as single-homed (AS21799) | §1 single-homed confirmed |

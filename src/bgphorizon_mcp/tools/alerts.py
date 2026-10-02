@@ -17,7 +17,7 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from ..client import BGPHorizonClient
-from ..common import meta, warning
+from ..common import api_tool, meta, warning
 
 # A window this wide almost certainly means the caller wanted a narrower one; we
 # still serve it, but say so, because a "daily report" over 90 days is wrong.
@@ -46,7 +46,7 @@ def _window_params(window: str, start: str | None, end: str | None) -> dict:
 def register_alert_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
 
     # -- my_alerts -----------------------------------------------------------
-    @mcp.tool()
+    @api_tool(mcp)
     def my_alerts(
         window: Annotated[
             str,
@@ -154,7 +154,7 @@ def register_alert_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
         }
 
     # -- my_monitors ---------------------------------------------------------
-    @mcp.tool()
+    @api_tool(mcp)
     def my_monitors(
         window: Annotated[
             str,

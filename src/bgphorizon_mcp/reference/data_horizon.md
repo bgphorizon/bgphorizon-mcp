@@ -2,17 +2,46 @@
 
 Read this before reasoning about *when* something started.
 
-## The retention floor
+## How far back the data goes
 
-Historical event and rollup data extends back a finite window. When a query
-window begins at that floor, the earliest data is **censored**: a prefix's
-`first_seen` on the floor date does not mean it appeared then, only that the
-data does not go back further. The API emits a `window_start_censored`
-warning in this case, and tools surface it.
+The sources do not reach back evenly (checked 2026-09-30):
 
-**Consequence:** never describe a `first_seen` that coincides with the window
-start (or the retention floor) as an origin, a launch, or a handover. Widen the
-window; if `first_seen` moves with the window edge, it is censored.
+| Source | Starts | Used by |
+|---|---|---|
+| Per-ASN daily rollup | 2026-01-04 | `inventory`, `origin_history` for an ASN, `origin_episode`, `health_check`, `timeline` for an ASN |
+| Per-prefix daily rollup | 2025-05-27 | `origin_history` for a prefix, `paths` (path list), `visibility` (reach), `timeline` for a prefix, `subprefixes` |
+| Raw events, IPv4 | 2025-05-27 | `reachability`, `origin_reach`, `events_sample`, `path_diversity`, sub-day `timeline`, the `upstreams` of `paths`, `visibility` and `locate` (last 31 days of the window) |
+| Raw events, IPv6 | 2026-04-01 | the same, for IPv6 |
+
+**Raw events are kept for 90 days from all ~25 collectors, and only from 5 collectors
+(route-views2, rrc00, rrc11, rrc21, rrc23) beyond that.** Peer counts, reach and
+propagation shares for anything older than 90 days are therefore understated.
+
+The API says so, and every tool passes it on:
+
+- `window_before_data`: the window starts before the source has data; results cover
+  the period from the date it names, and anything first seen on that date may be
+  older.
+- `reduced_vantage_points`: part of the window is older than 90 days, so those raw-event
+  figures come from 5 collectors.
+- `window_start_censored`: a prefix was first seen on the window's first day; its
+  `first_seen` is the window edge, not when it appeared.
+- `history_limited`: the account's history does not reach the requested start; results
+  start at the date named.
+
+**Consequence:** never describe a `first_seen` that coincides with the window start or
+a data floor as an origin, a launch or a handover. Widen the window; if `first_seen`
+moves with the window edge, it is censored. Do not compare peer counts across the
+90-day boundary.
+
+## Partial results
+
+When part of a response could not be read (a sub-query failed or timed out) the tool
+carries a `partial_result` warning naming the missing parts, and totals that include
+them are low. A section that could not be loaded is reported as unavailable
+(`sections_unavailable`, `unavailable`, `not_checked`), never as "none": do not write
+"no ROA" or "no IRR object" from it. Re-run, or check the section with
+`bulk_registry`.
 
 ## rollup vs raw_events
 

@@ -56,9 +56,13 @@ connect, the server answers 401 and the client opens a BGPHorizon page where you
 sign in and click **Allow**.
 
 - **Claude Desktop and claude.ai:** Settings → Connectors → Add custom
-  connector, URL `https://bgphorizon.com/mcp`.
+  connector, URL `https://bgphorizon.com/mcp`. Connectors belong to your Claude
+  account, so one added in Desktop also works in claude.ai.
 - **Claude Code:** `claude mcp add --transport http bgphorizon https://bgphorizon.com/mcp`,
   then `/mcp`, select `bgphorizon`, and choose **Authenticate**.
+  Click it once per attempt: each click starts a new sign-in, and approving an
+  older browser tab fails with "Invalid state parameter". On Windows under WSL,
+  install `wslu` and set `BROWSER=wslview` so Claude Code can open your browser.
 - **Cursor, VS Code and other clients with MCP sign-in:**
   `{ "mcpServers": { "bgphorizon": { "url": "https://bgphorizon.com/mcp" } } }`
 
@@ -433,6 +437,8 @@ errors documented in [`../reporting/METHODOLOGY.md`](../reporting/METHODOLOGY.md
 | Responses truncated mid-JSON | Client output cap | Narrow the window; `events_sample` caps at 500 by design |
 | Quota errors mid-investigation | M11 entitlement limit | Check tier limits; errors are structured so the model can explain them |
 | Streaming hangs behind a proxy | `proxy_buffering` on | Set `proxy_buffering off` |
+| Claude Code sign-in: "Invalid state parameter" | An older browser tab was approved after starting a new attempt | Click **Authenticate** once and use only the tab it opens |
+| Claude Code on WSL does not open a browser | No browser bridge in WSL | `sudo apt install wslu` and `export BROWSER=wslview` |
 
 Debug logging:
 ```bash

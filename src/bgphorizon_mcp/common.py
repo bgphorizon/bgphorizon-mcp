@@ -7,9 +7,12 @@ warning codes here do more to keep a model honest than anything else here.
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import datetime as _dt
+import functools
 import ipaddress
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable, Iterator
 
 
 def now_iso() -> str:
@@ -29,6 +32,70 @@ def warning(code: str, message: str, **fields: Any) -> dict:
     w = {"code": code, "message": message}
     w.update(fields)
     return w
+
+
+# -- API warnings pass-through ------------------------------------------------
+# The API marks partial results, windows that reach before the data, reduced
+# vantage points and shortened history in each response's `warnings`. Before
+# 2026-09-30 only 4 of 25 tools passed them on, so a report could not see them.
+# Now the client records every response's warnings for the running tool call and
+# api_tool() merges them into the tool's result.
+
+_api_warnings: contextvars.ContextVar[list | None] = contextvars.ContextVar("api_warnings", default=None)
+
+
+@contextlib.contextmanager
+def quiet_api_warnings() -> Iterator[None]:
+    """API reads inside this block do not add their warnings to the tool result. For
+    follow-up checks on single prefixes inside a whole-network tool, where a
+    prefix's own warning (e.g. direct_session_only) would read as being about the
+    whole network. The tool reports what it concluded from those reads instead."""
+    token = _api_warnings.set(None)
+    try:
+        yield
+    finally:
+        _api_warnings.reset(token)
+
+
+def record_api_warnings(raw: Any) -> None:
+    """Called by the client for every JSON response that carries warnings."""
+    bucket = _api_warnings.get()
+    if bucket is not None and raw:
+        bucket.extend(normalize_warnings(raw))
+
+
+def merge_warnings(result: Any, extra: list[dict]) -> Any:
+    """Append `extra` to result["warnings"], skipping any already present."""
+    if not isinstance(result, dict) or not extra:
+        return result
+    ws = result.get("warnings")
+    if not isinstance(ws, list):
+        ws = []
+        result["warnings"] = ws
+    seen = {(w.get("code"), w.get("message")) for w in ws if isinstance(w, dict)}
+    for w in extra:
+        key = (w.get("code"), w.get("message"))
+        if key not in seen:
+            ws.append(w)
+            seen.add(key)
+    return result
+
+
+def api_tool(mcp: Any, **kwargs: Any) -> Callable:
+    """Use in place of ``@mcp.tool()``: registers the tool and adds every warning the
+    API returned during the call to the tool's own ``warnings``."""
+    def deco(fn: Callable) -> Callable:
+        @functools.wraps(fn)
+        def wrapper(*args: Any, **kw: Any) -> Any:
+            bucket: list = []
+            token = _api_warnings.set(bucket)
+            try:
+                result = fn(*args, **kw)
+            finally:
+                _api_warnings.reset(token)
+            return merge_warnings(result, bucket)
+        return mcp.tool(**kwargs)(wrapper)
+    return deco
 
 
 def normalize_warnings(raw: Any) -> list[dict]:

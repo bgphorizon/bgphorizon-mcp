@@ -1,7 +1,7 @@
 """Pure reshaping helpers shared across tools.
 
 These turn raw ``/api/v1`` payloads into the task-shaped structures the tool
-contracts promise (docs/mcp/TOOLS.md). Kept pure and importable so the logic that
+contracts promise (docs/TOOLS.md). Kept pure and importable so the logic that
 docs say a model tends to get wrong (persistence transitions, detection direction,
 upstream/prepend collapsing) is testable in isolation.
 """
@@ -176,7 +176,11 @@ def counts_by(incidents: list[dict], field: str) -> dict[str, int]:
 # -- paths -------------------------------------------------------------------
 
 def aggregate_upstreams(paths: list[dict]) -> list[dict]:
-    """Sum observed counts by immediate upstream AS → share of total."""
+    """Sum observed counts by immediate upstream AS → share of total.
+
+    A path that is only the origin (upstream_as 0) has no upstream: it is the
+    origin's own session with a route collector. It counts toward the total, so
+    the shares stay honest, but is not listed as an upstream (see direct_share)."""
     totals: dict[int, int] = {}
     grand = 0
     for p in paths:
@@ -184,13 +188,29 @@ def aggregate_upstreams(paths: list[dict]) -> list[dict]:
         c = p.get("count", 0) or 0
         if up is None:
             continue
-        totals[up] = totals.get(up, 0) + c
         grand += c
+        if up == 0:
+            continue
+        totals[up] = totals.get(up, 0) + c
     out = [
         {"asn": up, "share": round(c / grand, 4) if grand else 0.0}
         for up, c in sorted(totals.items(), key=lambda kv: -kv[1])
     ]
     return out
+
+
+def direct_share(paths: list[dict]) -> float:
+    """Share of path observations that are the origin alone (its own collector
+    session, no upstream)."""
+    grand = direct = 0
+    for p in paths:
+        if p.get("upstream_as") is None:
+            continue
+        c = p.get("count", 0) or 0
+        grand += c
+        if p.get("upstream_as") == 0:
+            direct += c
+    return round(direct / grand, 4) if grand else 0.0
 
 
 def prepend_observations(paths: list[dict]) -> list[dict]:
@@ -265,17 +285,119 @@ def rpki_coverage(
     return covered, uncovered
 
 
-def unrouted_estimate(parent_cidr: str, subprefixes: list[dict]) -> int:
-    """Rough count of addresses in the block never seen as an announced
-    more-specific. Approximate: parent size minus the summed sizes of announced
-    more-specifics (ignores overlap, so it is a lower bound on unrouted space)."""
-    parent = prefix_addresses(parent_cidr)
-    covered = 0
-    for s in subprefixes:
-        cidr = s.get("cidr")
-        if cidr:
-            covered += prefix_addresses(cidr)
-    return max(0, parent - covered)
+def unrouted_gaps(block_cidr: str, announced: list[str]) -> list[str]:
+    """CIDRs inside `block_cidr` that no announced prefix covers. `announced` may hold
+    more-specifics, the block itself or a less-specific; anything containing the
+    block means nothing in it is unrouted. Overlapping announcements are handled as
+    a real set difference, not by summing sizes."""
+    try:
+        block = ipaddress.ip_network(block_cidr, strict=False)
+    except ValueError:
+        return []
+    remaining = [block]
+    for cidr in announced:
+        try:
+            a = ipaddress.ip_network(cidr, strict=False)
+        except ValueError:
+            continue
+        if a.version != block.version or not a.overlaps(block):
+            continue
+        if block.subnet_of(a):
+            return []
+        nxt = []
+        for r in remaining:
+            if r.subnet_of(a):
+                continue
+            if a.subnet_of(r):
+                nxt.extend(r.address_exclude(a))
+            else:
+                nxt.append(r)
+        remaining = nxt
+        if not remaining:
+            break
+    return [str(n) for n in ipaddress.collapse_addresses(remaining)]
+
+
+class CidrIndex:
+    """Set of CIDRs answering "which stored prefix contains this one" in one dict
+    lookup per prefix length (33 or 129), instead of comparing against every entry.
+    health_check did the latter for hundreds of prefixes against thousands of IRR
+    objects: ~9.5M ip_network parses and ~36 s for AS13335."""
+
+    def __init__(self, cidrs: list[str] | None = None) -> None:
+        self._by: dict[tuple[int, int, int], str] = {}
+        self._lens: dict[int, set[int]] = {4: set(), 6: set()}
+        for c in cidrs or []:
+            self.add(c)
+
+    def add(self, cidr: str) -> None:
+        try:
+            n = ipaddress.ip_network(cidr, strict=False)
+        except ValueError:
+            return
+        self._by[(n.version, n.prefixlen, int(n.network_address))] = str(n)
+        self._lens[n.version].add(n.prefixlen)
+
+    def containing(self, cidr: str, strict: bool = False) -> str | None:
+        """Most specific stored CIDR containing `cidr` (itself too, unless strict)."""
+        try:
+            n = ipaddress.ip_network(cidr, strict=False)
+        except ValueError:
+            return None
+        addr, bits = int(n.network_address), n.max_prefixlen
+        for plen in sorted(self._lens[n.version], reverse=True):
+            if plen > n.prefixlen or (strict and plen == n.prefixlen):
+                continue
+            key = (n.version, plen, addr >> (bits - plen) << (bits - plen))
+            if key in self._by:
+                return self._by[key]
+        return None
+
+
+def nets_inside(block: str, nets: list) -> list:
+    """Pre-parsed networks from `nets` that sit inside `block`."""
+    try:
+        b = ipaddress.ip_network(block, strict=False)
+    except ValueError:
+        return []
+    return [n for n in nets if n.version == b.version and n.subnet_of(b)]
+
+
+def parse_nets(cidrs: list[str]) -> list:
+    out = []
+    for c in cidrs:
+        try:
+            out.append(ipaddress.ip_network(c, strict=False))
+        except ValueError:
+            pass
+    return out
+
+
+def covering_announced(block_cidr: str, hierarchy: dict | None) -> list[str]:
+    """From a /prefix/hierarchy response (routed prefixes containing the block's first
+    address), the ones equal to or less specific than the block, i.e. announcements
+    that already route every address in it."""
+    try:
+        block = ipaddress.ip_network(block_cidr, strict=False)
+    except ValueError:
+        return []
+    out = []
+    for p in (hierarchy or {}).get("prefixes") or []:
+        try:
+            n = ipaddress.ip_network(p.get("cidr") or "", strict=False)
+        except ValueError:
+            continue
+        if n.version == block.version and block.subnet_of(n):
+            out.append(str(n))
+    return out
+
+
+def unrouted_estimate(parent_cidr: str, subprefixes: list[dict], covering: list[str] | None = None) -> int:
+    """Addresses in the block that no announcement covers: the block minus the union of
+    announced more-specifics, or 0 when the block itself or a less-specific is announced
+    (pass those in `covering`)."""
+    announced = [s.get("cidr") for s in subprefixes if s.get("cidr")] + list(covering or [])
+    return sum(prefix_addresses(g) for g in unrouted_gaps(parent_cidr, announced))
 
 
 _RIR_HOSTS = {
@@ -345,6 +467,287 @@ def detections_summary(incidents: list[dict]) -> dict:
 
 
 # Columns of `detections` compact rows, in order.
+# -- health_check annotations ---------------------------------------------------
+# Findings keep every affected prefix; these add the context a reader needs to act on
+# each one (was it a one-day blip, and whose space is it) instead of dropping any.
+
+def rdap_entities(rdap: dict | None) -> list[dict]:
+    """Entities from either RDAP shape: the /rdap endpoints' `entities` list, or the
+    bulk endpoint's cache row, which carries them as an `EntitiesJSON` string."""
+    if not isinstance(rdap, dict):
+        return []
+    ents = rdap.get("entities") or rdap.get("Entities")
+    if isinstance(ents, list):
+        return ents
+    raw = rdap.get("EntitiesJSON")
+    if isinstance(raw, str) and raw.startswith("["):
+        try:
+            return json.loads(raw)
+        except ValueError:
+            return []
+    return []
+
+
+def _registrants(rdap: dict | None) -> list[dict]:
+    return [e for e in rdap_entities(rdap) if "registrant" in [str(r).lower() for r in (e.get("roles") or [])]]
+
+
+def _name_key(name: str | None) -> str | None:
+    """First word of an organization name, lowercased: "Cloudflare, Inc." -> "cloudflare".
+    Too-short or generic first words give None rather than a loose match."""
+    if not name:
+        return None
+    word = "".join(ch for ch in name.split()[0].lower() if ch.isalnum())
+    return word if len(word) >= 4 and word not in {"the", "internet", "network", "networks", "global"} else None
+
+
+def asn_holder_identity(asn_rdap: dict | None) -> dict:
+    """Registrant handles and a name key for the audited ASN, to compare against
+    each prefix's registration."""
+    regs = _registrants(asn_rdap)
+    name = next((e.get("name") for e in regs if e.get("name")), None) or (asn_rdap or {}).get("name")
+    return {"handles": {e.get("handle") for e in regs if e.get("handle")}, "name_key": _name_key(name)}
+
+
+def prefix_holder(prefix_rdap: dict | None, asn_ident: dict, fallback: dict | None = None,
+                  approximate: bool = False) -> dict:
+    """Who is registered for a prefix (or ASN) and whether it is the audited network.
+
+    holder_is_asn is True/False when registrant handles can be compared (same RIR),
+    else decided by a first-word name comparison, else None. `basis` says which
+    applied. With no cached RDAP record, `fallback` (the API's name_fallback: an IRR
+    descr or PeeringDB name) supplies the holder and only a name match can confirm
+    it; `holder_source` then names that source. `holder_approximate` marks an RDAP
+    record that is the containing registration rather than a lookup of this prefix."""
+    has_rdap = isinstance(prefix_rdap, dict) and bool(
+        prefix_rdap.get("Name") or prefix_rdap.get("name") or rdap_entities(prefix_rdap))
+    if not has_rdap:
+        if not (fallback or {}).get("name"):
+            return {"holder": None, "holder_is_asn": None, "basis": None}
+        name = fallback["name"]
+        key = asn_ident.get("name_key")
+        match = True if key and key in "".join(ch for ch in name.lower() if ch.isalnum()) else None
+        return {"holder": name, "holder_is_asn": match, "basis": "name" if match else None,
+                "holder_source": fallback.get("source")}
+    regs = _registrants(prefix_rdap)
+    net_name = prefix_rdap.get("Name") or prefix_rdap.get("name")
+    holder = next((e.get("name") for e in regs if e.get("name")), None) or net_name
+    handles = {e.get("handle") for e in regs if e.get("handle")}
+    out: dict[str, Any] = {"holder": holder, "holder_is_asn": None, "basis": None, "holder_source": "rdap"}
+    if approximate:
+        out["holder_approximate"] = True
+    key = asn_ident.get("name_key")
+    name_text = "".join(ch for ch in " ".join(filter(None, [net_name, holder] + [
+        e.get("name") for e in rdap_entities(prefix_rdap)])).lower() if ch.isalnum())
+    if handles and asn_ident.get("handles") and handles & asn_ident["handles"]:
+        out.update(holder_is_asn=True, basis="registrant_handle")
+    elif key and key in name_text:
+        out.update(holder_is_asn=True, basis="name")
+    elif handles and asn_ident.get("handles"):
+        out.update(holder_is_asn=False, basis="registrant_handle")
+    return out
+
+
+def rpki_state(records: list[dict], asn: int, plen: int | None) -> dict:
+    """RFC 6811 state of an announcement from `asn` given every covering ROA (the
+    /rpki/prefix records). reason: as0 (only AS0 ROAs cover it: the holder marked it
+    do-not-route), max_length (a ROA names asn but not this length), other_origin."""
+    if not records:
+        return {"state": "not_found"}
+    def ok(r):
+        ml = r.get("max_length")
+        return r.get("origin_asn") == asn and (ml is None or plen is None or ml >= plen)
+    if any(ok(r) for r in records):
+        return {"state": "valid"}
+    origins = {r.get("origin_asn") for r in records}
+    reason = "as0" if origins == {0} else ("max_length" if asn in origins else "other_origin")
+    covering = sorted({(r.get("cidr") or r.get("prefix"), r.get("origin_asn"), r.get("max_length")) for r in records},
+                      key=lambda x: (str(x[0]), x[1] or 0))
+    return {"state": "invalid", "reason": reason,
+            "covering_roas": [{"cidr": c, "origin_asn": o, "max_length": m} for c, o, m in covering[:5]]}
+
+
+def count_by(rows: list[dict], key: str) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for r in rows:
+        k = r.get(key)
+        k = "unknown" if k is None else (str(k).lower() if isinstance(k, bool) else str(k))
+        out[k] = out.get(k, 0) + 1
+    return out
+
+
+def relationship_map(rel: dict | None) -> dict[int, dict]:
+    """ASN -> {"relationship": provider|customer|other, "name"} from /asn/relationships
+    (M13 inferred provider-to-customer links; other = observed adjacency, e.g. peering)."""
+    out: dict[int, dict] = {}
+    for key, label in (("upstreams", "provider"), ("downstreams", "customer"), ("other_connections", "other")):
+        for n in (rel or {}).get(key) or []:
+            if n.get("asn") is not None and n["asn"] not in out:
+                out[n["asn"]] = {"relationship": label, "name": n.get("name")}
+    return out
+
+
+def transit_analysis(transit: list[dict], pres_by_cidr: dict[str, dict], rels: dict[int, dict]) -> dict:
+    """Single-neighbor prefixes across the whole ASN, each with its lone first-hop
+    neighbor, how the neighbor relates to the ASN, and persistence.
+
+    A prefix seen through one neighbor is only a single point of failure if the
+    network itself has one. When the network has many neighbors, a prefix that reaches
+    the table through just one of them is usually a deliberate regional or
+    traffic-engineered announcement, so it is labelled `selective`, not `single_homed`."""
+    network = {n["asn"] for p in transit for n in (p.get("neighbors") or []) if n.get("share", 0) >= 0.01}
+    rows = []
+    for p in transit:
+        sig = p.get("significant_neighbor_count")
+        if sig is None or sig > 1:
+            continue
+        cidr = p.get("cidr")
+        pres = pres_by_cidr.get(cidr) or {}
+        row: dict[str, Any] = {"prefix": cidr, "unique_peers": p.get("unique_peers")}
+        if pres:
+            row["persistence"] = pres.get("classification")
+            row["days_present"] = pres.get("days_present")
+        # Prepended paths whose neighbor the rollup did not keep (API prepended_share).
+        # They may go through a second provider (a prepended backup) or the same one,
+        # so the row is uncertain until collector sessions settle it.
+        if (p.get("prepended_share") or 0) >= 0.01:
+            row["prepended_share"] = p["prepended_share"]
+            row["neighbors_uncertain"] = True
+        if sig == 0:
+            row["kind"] = "direct_sessions_only"
+        else:
+            top = (p.get("neighbors") or [{}])[0]
+            rel = rels.get(top.get("asn")) or {}
+            row.update(neighbor=top.get("asn"), neighbor_name=rel.get("name"),
+                       relationship=rel.get("relationship", "unknown"),
+                       kind="single_homed" if len(network) <= 1 else "selective")
+        rows.append(row)
+    return {"rows": rows, "network_neighbors": len(network), "network": network}
+
+
+def visibility_analysis(transit: list[dict], pres_by_cidr: dict[str, dict],
+                        context: dict[str, dict], ratio: float = 0.6) -> dict:
+    """Prefixes seen by far fewer collector peers than the ASN's typical prefix of the
+    same address family. The baseline is the median over persistent prefixes, so
+    one-day announcements do not drag it down. Each weak prefix gets likely
+    explanations from what the audit already knows (`context`: RPKI/IRR state per
+    prefix), e.g. an RPKI-invalid route is dropped by validating networks."""
+    medians: dict[bool, float] = {}
+    for v6 in (False, True):
+        peers = sorted(p.get("unique_peers") or 0 for p in transit if bool(p.get("is_v6")) == v6
+                       and (pres_by_cidr.get(p.get("cidr")) or {}).get("classification") == "persistent")
+        if len(peers) >= 5:
+            medians[v6] = peers[len(peers) // 2]
+    rows = []
+    for p in transit:
+        med = medians.get(bool(p.get("is_v6")))
+        peers = p.get("unique_peers") or 0
+        if not med or peers >= ratio * med:
+            continue
+        cidr = p.get("cidr")
+        pres = pres_by_cidr.get(cidr) or {}
+        ctx = context.get(cidr) or {}
+        reasons = []
+        if ctx.get("rpki") == "invalid":
+            reasons.append("rpki_invalid")
+        if pres.get("classification") in ("transient", "intermittent"):
+            reasons.append("short_lived")
+        if (p.get("significant_neighbor_count") or 0) <= 1 and (p.get("prepended_share") or 0) < 0.01:
+            reasons.append("single_neighbor")
+        if ctx.get("irr") in ("missing", "other_origin_only"):
+            reasons.append("no_irr_object")
+        rows.append({"prefix": cidr, "unique_peers": peers, "family_median": med,
+                     "ratio": round(peers / med, 2), "persistence": pres.get("classification"),
+                     "likely_reasons": reasons})
+    rows.sort(key=lambda r: r["ratio"])
+    return {"rows": rows, "medians": {"v4": medians.get(False), "v6": medians.get(True)}}
+
+
+def moas_by_prefix(incidents: list[dict], asn: int) -> list[dict]:
+    """Group moas_conflict incidents touching `asn` into one row per prefix: who else
+    originated it, the prefix's 30-day baseline origins, which origins the detector
+    flagged as outside that baseline, how each flagged origin relates to the baseline
+    (the detector's `related_to`), and whether the conflict is still active.
+
+    `baseline_origins` comes from each incident's details, not the incident's
+    `baseline_asns` column: for MOAS that column also lists every counterparty, so an
+    origin can appear there and still be outside the baseline.
+
+    classification: `anomalous` (a flagged origin with no known relation, or only an
+    observed adjacency, which is how leaks look), `related` (flagged origins are all a
+    baseline origin's provider or customer), `same_organization` (all registered to
+    the baseline origin's organization), or `steady` (no flagged origin). Nothing is
+    dropped."""
+    rank = {"anomalous": 4, "related": 3, "same_organization": 2, "steady": 1}
+    rows: dict[str, dict] = {}
+    for inc in incidents:
+        prefix = inc.get("prefix")
+        if prefix and "/" not in str(prefix) and inc.get("prefix_len") is not None:
+            prefix = f"{prefix}/{inc['prefix_len']}"
+        if not prefix:
+            continue
+        details = inc.get("details") if isinstance(inc.get("details"), dict) else {}
+        origins = {inc.get("actor_as")} | {
+            o.get("asn") for o in (details.get("other_origins") or []) if isinstance(o, dict)
+        }
+        origins.discard(None)
+        r = rows.setdefault(prefix, {
+            "prefix": prefix, "other_origins": set(), "anomalous_origins": set(), "relations": {},
+            "baseline_origins": set(), "active": False, "incidents": 0, "classification": "steady",
+            "first_seen": inc.get("first_seen"), "last_seen": inc.get("last_seen"),
+        })
+        r["other_origins"] |= origins - {asn}
+        r["baseline_origins"] |= set(details.get("baseline_origins") or [])
+        actor = inc.get("actor_as")
+        if inc.get("is_anomalous") and actor is not None:
+            r["anomalous_origins"].add(actor)
+            rel = (details.get("related_to") or {}).get("relation")
+            if rel:
+                r["relations"][str(actor)] = {"asn": (details.get("related_to") or {}).get("asn"), "relation": rel}
+            cls = {"same_organization": "same_organization", "provider": "related",
+                   "customer": "related"}.get(rel, "anomalous")
+            if rank[cls] > rank[r["classification"]]:
+                r["classification"] = cls
+        r["active"] = r["active"] or inc.get("state") == "active"
+        r["incidents"] += 1
+        fs, ls = inc.get("first_seen"), inc.get("last_seen")
+        if fs and (not r["first_seen"] or fs < r["first_seen"]):
+            r["first_seen"] = fs
+        if ls and (not r["last_seen"] or ls > r["last_seen"]):
+            r["last_seen"] = ls
+    out = []
+    for r in rows.values():
+        out.append({
+            "prefix": r["prefix"],
+            "other_origins": sorted(r["other_origins"]),
+            "baseline_origins": sorted(r["baseline_origins"]),
+            "anomalous_origins": sorted(r["anomalous_origins"]),
+            "relations": r["relations"],
+            "classification": r["classification"],
+            "active": r["active"],
+            "first_seen": r["first_seen"],
+            "last_seen": r["last_seen"],
+            "incidents": r["incidents"],
+        })
+    out.sort(key=lambda x: (-rank[x["classification"]], not x["active"], str(x["last_seen"] or "")))
+    return out
+
+
+def detector_gap_days(trend_points: list[dict], start: str, end: str) -> list[str]:
+    """Days in [start, end] with no anomalous detection anywhere on the platform. The
+    platform records thousands a day, so a zero day means the detector was not running
+    and a 'none' result for that day proves nothing."""
+    seen = {p.get("date") for p in trend_points if (p.get("count") or 0) > 0}
+    d0, d1 = _dt.date.fromisoformat(start[:10]), _dt.date.fromisoformat(end[:10])
+    gaps = []
+    d = d0
+    while d <= d1:
+        if d.isoformat() not in seen:
+            gaps.append(d.isoformat())
+        d += _dt.timedelta(days=1)
+    return gaps
+
+
 COMPACT_INCIDENT_COLUMNS = [
     "detection_type", "prefix", "actor_as", "baseline_asns", "direction",
     "severity", "state", "first_seen", "last_seen", "peer_count",

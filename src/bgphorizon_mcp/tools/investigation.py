@@ -7,6 +7,7 @@ silently misread it (persistence, vantage-point concentration, host routes, …)
 
 from __future__ import annotations
 
+import ipaddress
 from typing import Annotated, Any, Literal, Optional
 
 from mcp.server.fastmcp import FastMCP
@@ -14,6 +15,7 @@ from pydantic import Field
 
 from ..client import BGPHorizonClient
 from ..common import (
+    api_tool,
     concentration_warning,
     default_window,
     host_route_warning,
@@ -27,7 +29,8 @@ from ..common import (
     rfc3339,
     warning,
 )
-from . import _shape
+from . import _paging, _shape
+from ._paging import session_upstreams
 
 
 # Above this many incidents `detections` returns compact rows unless format="full".
@@ -39,7 +42,7 @@ NOTABLE_PREFIXES_MAX = 200
 def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None:
 
     # -- identify ------------------------------------------------------------
-    @mcp.tool()
+    @api_tool(mcp)
     def identify(
         asn: Optional[int] = None,
         prefix: Optional[str] = None,
@@ -71,6 +74,17 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         rpki = profile.get("rpki") or {}
         irr = profile.get("irr") or {}
         pdb = profile.get("peeringdb") or {}
+        # Sections the gateway could not load are listed, not silently empty; say so,
+        # so "no ROA" / "no IRR object" is never inferred from a failed read.
+        unavailable = profile.get("unavailable") or []
+        if unavailable:
+            warnings.append(warning(
+                "sections_unavailable",
+                f"Could not load: {', '.join(unavailable)}. Treat those parts as unknown, not "
+                "as absent; retry or check them with bulk_registry.",
+            ))
+        for w in profile.get("warnings") or []:
+            warnings.extend(normalize_warnings([w]))
 
         observed_origins = {
             o.get("origin_as")
@@ -96,8 +110,12 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
                     )
                 )
 
+        # Prefix lookups return every covering ROA (RFC 6811), including ones whose
+        # max_length stops short of the prefix; only matches_length ones authorize it.
+        # ASN lookups carry no flag: each of those ROAs authorizes the ASN.
         rpki_origins = sorted(
-            {r.get("origin_asn") for r in (rpki.get("records") or []) if r.get("origin_asn")}
+            {r.get("origin_asn") for r in (rpki.get("records") or [])
+             if r.get("origin_asn") and r.get("matches_length", True)}
         )
         result: dict[str, Any] = {
             "kind": kind,
@@ -117,7 +135,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
             }
         if "rpki" in include:
             result["rpki"] = {
-                "has_rpki": rpki.get("has_rpki", False),
+                "has_rpki": None if "rpki" in unavailable else rpki.get("has_rpki", False),
                 "roa_count": len(rpki.get("records") or []),
                 "authorized_origins": rpki_origins,
             }
@@ -148,7 +166,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         return result
 
     # -- inventory -----------------------------------------------------------
-    @mcp.tool()
+    @api_tool(mcp)
     def inventory(
         asn: int,
         start: Annotated[Optional[str], Field(description="YYYY-MM-DD")] = None,
@@ -171,12 +189,25 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         asn = normalize_asn(asn)
         start, end = default_window(start, end, days=30)
         pres = client.presence(asn=asn, **{"from": start, "to": end})
-        ov = client.asn_overview(asn, start_date=start, end_date=end)
+        allp = pres.get("prefixes", []) or []
+
+        # Totals describe everything the ASN originated, whatever `only` /
+        # `min_prefix_len` keep in the list. Addresses are the union, so a /12 and the
+        # /24s inside it are not counted twice. (Totals used to come from a separate
+        # overview call, which could disagree with this list.)
+        v4_nets = []
+        for p in allp:
+            cidr = p.get("cidr") or ""
+            if cidr and ":" not in cidr:
+                try:
+                    v4_nets.append(ipaddress.ip_network(cidr, strict=False))
+                except ValueError:
+                    pass
+        addresses_v4 = sum(n.num_addresses for n in ipaddress.collapse_addresses(v4_nets))
 
         prefixes = []
-        addresses_v4 = 0
         by_class: dict[str, int] = {}
-        for p in pres.get("prefixes", []):
+        for p in allp:
             plen = p.get("prefix_len")
             if min_prefix_len is not None and plen is not None and plen < min_prefix_len:
                 continue
@@ -194,11 +225,8 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
             if classify:
                 entry["classification"] = cls
             prefixes.append(entry)
-            cidr = p.get("cidr") or ""
-            if ":" not in cidr:
-                addresses_v4 += prefix_addresses(cidr)
 
-        dist = length_distribution(pres.get("prefixes", []))
+        dist = length_distribution(allp)
         warnings = host_route_warning(dist)
         warnings += normalize_warnings(pres.get("warnings"))
 
@@ -206,8 +234,8 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
             "asn": asn,
             "window": {"from": start, "to": end},
             "totals": {
-                "v4": ov.get("prefixes_v4"),
-                "v6": ov.get("prefixes_v6"),
+                "v4": sum(1 for p in allp if ":" not in (p.get("cidr") or "")),
+                "v6": sum(1 for p in allp if ":" in (p.get("cidr") or "")),
                 "addresses_v4": addresses_v4,
                 "listed": len(prefixes),
             },
@@ -221,7 +249,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         return out
 
     # -- timeline ------------------------------------------------------------
-    @mcp.tool()
+    @api_tool(mcp)
     def timeline(
         target: str,
         start: Optional[str] = None,
@@ -297,7 +325,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         }
 
     # -- origin_history ------------------------------------------------------
-    @mcp.tool()
+    @api_tool(mcp)
     def origin_history(
         prefix: str,
         start: Optional[str] = None,
@@ -310,9 +338,9 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         start, end = default_window(start, end, days=60)
         pres = client.presence(prefix=prefix, **{"from": start, "to": end})
         target = pres.get("prefixes", [{}])
-        obd = target[0].get("origins_by_day", {}) if target else {}
+        obd = (target[0].get("origins_by_day") or {}) if target else {}
         if not obd:
-            obd = pres.get("origins_by_day", {})
+            obd = (pres.get("origins_by_day") or {})
 
         days = _shape.days_from_origins_by_day(obd)
         transitions = _shape.transitions_from_days(days)
@@ -337,7 +365,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         }
 
     # -- reachability --------------------------------------------------------
-    @mcp.tool()
+    @api_tool(mcp)
     def reachability(
         prefixes: list[str],
         start: Optional[str] = None,
@@ -352,17 +380,32 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         warnings: list[dict] = []
         for pfx in prefixes:
             r = client.reachability(pfx, **{"from": start, "to": end})
-            summary = r.get("summary", {})
+            summary = (r.get("summary") or {})
             results.append(
                 {
                     "prefix": r.get("cidr", pfx),
-                    "series": r.get("series", []),
-                    "windows": summary.get("windows", []),
+                    "series": (r.get("series") or []),
+                    "windows": (summary.get("windows") or []),
                     "peers_tracked": summary.get("peers_tracked"),
                     "peak_pct": summary.get("peak_pct"),
                     "peak_at": summary.get("peak_at"),
                 }
             )
+            # A prefix no ROA authorizes at its length (e.g. only an AS0 or a too-short
+            # max_length ROA covers it) is dropped by validating networks all the time, so
+            # its "routeless" peers are mostly filtering, not an outage.
+            try:
+                recs = (client.rpki_prefix(pfx) or {}).get("records") or []
+            except Exception:  # noqa: BLE001
+                recs = []
+            if recs and not any(r.get("matches_length", True) and r.get("origin_asn") for r in recs):
+                results[-1]["rpki"] = "invalid_for_every_origin"
+                warnings.append(warning(
+                    "rpki_invalid_prefix",
+                    f"{pfx} is RPKI-invalid for every origin (its covering ROAs are AS0 or stop short "
+                    "of its length), so networks performing origin validation drop it; routeless "
+                    "peers and outage windows here mostly reflect that filtering, not an outage.",
+                ))
         if len(prefixes) > 1:
             warnings.append(
                 warning(
@@ -371,13 +414,14 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
                     "prefixes points at a common upstream rather than a per-prefix issue.",
                 )
             )
-        out: dict[str, Any] = {"results": results, "warnings": warnings, "meta": meta("raw_events")}
-        if len(results) == 1:
-            out.update(results[0])
+        # One prefix: its fields at the top level. Several: a `results` list. (Both forms
+        # at once doubled the response.)
+        out: dict[str, Any] = dict(results[0]) if len(results) == 1 else {"results": results}
+        out.update({"warnings": warnings, "meta": meta("raw_events")})
         return out
 
     # -- global reach --------------------------------------------------------
-    @mcp.tool()
+    @api_tool(mcp)
     def global_reach(prefix: str) -> dict:
         """How globally reachable a prefix is: the share of full-table feeds that see it over a
         30-day footprint, classified global / regional / local, with a per-region penetration
@@ -397,12 +441,12 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
             "seen_feeds": v.get("seen_feeds"),
             "total_feeds": v.get("total_feeds"),
             "window_days": v.get("window_days"),
-            "regions": v.get("regions", []),
+            "regions": (v.get("regions") or []),
             "meta": meta("rollup", window_days=v.get("window_days", 30)),
         }
 
     # -- detections ----------------------------------------------------------
-    @mcp.tool()
+    @api_tool(mcp)
     def detections(
         asn: Optional[int] = None,
         prefix: Optional[str] = None,
@@ -414,6 +458,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         role: Optional[Literal["actor", "baseline"]] = None,
         state: Optional[Literal["active", "resolved"]] = None,
         max_incidents: Annotated[int, Field(ge=1, le=5000)] = 1000,
+        offset: Annotated[int, Field(ge=0, description="Resume from this position; pass the previous call's next_offset")] = 0,
         summary_only: bool = False,
         format: Literal["auto", "full", "compact"] = "auto",
     ) -> dict:
@@ -424,10 +469,13 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         Reading actor_as against baseline_asns by hand inverts conclusions.
 
         Pages through the API until `max_incidents` or the end. `complete=true` means
-        every matching incident was read, so counts in `summary` are exact; when false,
-        do not state a count without narrowing (a shorter window or a `detection_type`)
-        until it is. `summary_only=true` returns the aggregates without the incident list.
-        Start with it on a busy entity, then narrow.
+        every matching incident was read, so counts in `summary` are exact. When false,
+        `next_offset` is set: call again with the same arguments and `offset=next_offset`
+        to read the next batch, repeating until `next_offset` is null. Counts and
+        `summary` describe only the incidents in this call, so add batches up yourself or
+        narrow (a shorter window or a `detection_type`) before stating a total.
+        `summary_only=true` returns the aggregates without the incident list. Start with
+        it on a busy entity, then narrow.
 
         `format`: "full" lists every incident with `details` as an object. "compact"
         returns `incidents_compact`, one row per incident under a shared column list and
@@ -453,36 +501,34 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
             params["state"] = state
 
         norm_asn = normalize_asn(asn) if asn is not None else None
-        incidents: list[dict] = []
-        total = None
-        offset = 0
-        while len(incidents) < max_incidents:
-            params["offset"] = offset
-            params["limit"] = min(500, max_incidents - len(incidents))
-            if norm_asn is not None:
-                resp = client.detections_asn(norm_asn, **params)
-            else:
-                resp = client.detections_prefix(prefix, **params)
-            page = resp.get("incidents", []) or []
-            total = (resp.get("pagination") or {}).get("total", total)
-            incidents.extend(page)
-            offset += len(page)
-            if not page or (total is not None and offset >= total):
-                break
+        try:
+            incidents, total, next_offset = _paging.fetch_detections(
+                client, asn=norm_asn, prefix=prefix, params=params, offset=offset, max_incidents=max_incidents
+            )
+        except _paging.DetectionsUnavailable:
+            incidents, total, next_offset = [], 0, None
 
         for inc in incidents:
             _shape.parse_details(inc)
             d = _shape.detection_direction(inc, norm_asn)
             if d:
                 inc["direction"] = d
-        complete = total is None or len(incidents) >= total
+        complete = offset == 0 and next_offset is None
         warnings: list[dict] = []
-        if not complete:
+        if next_offset is not None:
             warnings.append(
                 warning(
                     "incomplete",
-                    f"Read {len(incidents)} of {total} matching incidents. Counts below cover only "
-                    "those; narrow the window or filter by detection_type before stating totals.",
+                    f"Read positions {offset} to {next_offset} of {total} matching incidents. Counts "
+                    f"below cover only those; call again with offset={next_offset} for the next "
+                    "batch, or narrow the window or detection_type.",
+                )
+            )
+        elif offset:
+            warnings.append(
+                warning(
+                    "partial_from_offset",
+                    f"This is the final batch, starting at offset {offset}; counts cover only it.",
                 )
             )
         out: dict[str, Any] = {
@@ -491,7 +537,9 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
                 "detection_type": detection_type, "anomalous_only": anomalous_only,
             },
             "total_matching": total,
+            "offset": offset,
             "returned": len(incidents),
+            "next_offset": next_offset,
             "complete": complete,
             "counts_by_type": _shape.counts_by(incidents, "detection_type"),
             "counts_by_severity": _shape.counts_by(incidents, "severity"),
@@ -515,7 +563,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         return out
 
     # -- paths ---------------------------------------------------------------
-    @mcp.tool()
+    @api_tool(mcp)
     def paths(
         prefix: str,
         start: Optional[str] = None,
@@ -523,7 +571,14 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         origin_as: Optional[int] = None,
     ) -> dict:
         """Transit structure for a prefix with prepending resolved: immediate
-        upstreams and their share, plus top paths with collapsed_path / prepend_count.
+        upstreams, plus top paths with collapsed_path / prepend_count.
+
+        `upstreams` count collector sessions (each session once, through the upstream
+        in its latest announcement in the window; at most the last 31 days), so they
+        are the prefix's transit mix. `direct_share` is the share of sessions that are
+        the origin's own (the path is the origin alone). Path `count` is update volume,
+        which one noisy peer can dominate: use it for which paths exist, not how common
+        they are.
 
         Pass `origin_as` to see only one origin's paths. On a contested prefix the top
         paths otherwise all belong to the usual origin, and a short hijack's paths never
@@ -539,16 +594,34 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
             warnings.append(
                 warning("no_paths_for_origin", f"No paths from AS{normalize_asn(origin_as)} in the window.")
             )
+        upstreams, direct, up_warnings = session_upstreams(
+            client, prefix, start, end,
+            origin_as=normalize_asn(origin_as) if origin_as is not None else None,
+            paths=path_list,
+        )
+        warnings.extend(up_warnings)
+        # The upstreams endpoint warns direct_session_only itself; the update-weighted
+        # fallback does not, so say it here in that case.
+        if any(w["code"] == "upstreams_by_updates" for w in up_warnings) and path_list and direct == 1.0:
+            warnings.append(
+                warning(
+                    "direct_session_only",
+                    "Every observed path is the origin alone: the route was seen only on the "
+                    "origin's own session with a route collector, and no other network was "
+                    "seen propagating it.",
+                )
+            )
         return {
             "prefix": prefix,
             "origin_as": normalize_asn(origin_as) if origin_as is not None else None,
-            "upstreams": _shape.aggregate_upstreams(path_list),
+            "upstreams": upstreams,
+            "direct_share": direct,
             "paths": [
                 {
                     "path_string": p.get("path_string"),
                     "count": p.get("count"),
                     "origin_as": p.get("origin_as"),
-                    "upstream_as": p.get("upstream_as"),
+                    "upstream_as": p.get("upstream_as") or None,
                     "prepend_count": p.get("prepend_count"),
                     "collapsed_path": p.get("collapsed_path"),
                 }
@@ -561,11 +634,12 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         }
 
     # -- relationships -------------------------------------------------------
-    @mcp.tool()
+    @api_tool(mcp)
     def relationships(
         asn: int,
         start: Optional[str] = None,
         end: Optional[str] = None,
+        max_per_group: Annotated[int, Field(ge=1, le=5000)] = 50,
     ) -> dict:
         """An ASN's transit hierarchy over a window: upstreams (its providers) and
         downstreams (its customers), plus observed neighbours whose relationship is
@@ -607,14 +681,23 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
                 "other_connections are observed adjacencies of unknown type, not confirmed peers.",
             )
         ] + normalize_warnings(rmeta.get("warnings"))
+        cut = {g: len(resp.get(g) or []) for g in ("upstreams", "downstreams", "other_connections")
+               if len(resp.get(g) or []) > max_per_group}
+        if cut:
+            rel_warnings.append(warning(
+                "lists_truncated",
+                "Listed the first " + str(max_per_group) + " of " +
+                ", ".join(f"{n} {g}" for g, n in cut.items()) +
+                " (strongest first); `counts` cover all. Raise max_per_group for more.",
+            ))
         return {
             "asn": norm,
             "window": {"from": start, "to": end},
             "served_window": {"from": rmeta.get("served_from"), "to": rmeta.get("served_to")},
             "data_through": rmeta.get("data_through"),
-            "upstreams": shape(resp.get("upstreams")),
-            "downstreams": shape(resp.get("downstreams")),
-            "other_connections": shape(resp.get("other_connections")),
+            "upstreams": shape(resp.get("upstreams"))[:max_per_group],
+            "downstreams": shape(resp.get("downstreams"))[:max_per_group],
+            "other_connections": shape(resp.get("other_connections"))[:max_per_group],
             "counts": {
                 "upstreams": resp.get("upstream_count"),
                 "downstreams": resp.get("downstream_count"),
@@ -626,7 +709,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         }
 
     # -- path_diversity ------------------------------------------------------
-    @mcp.tool()
+    @api_tool(mcp)
     def path_diversity(
         asn: int,
         prefix: Optional[str] = None,
@@ -716,7 +799,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         }
 
     # -- translate_communities -----------------------------------------------
-    @mcp.tool()
+    @api_tool(mcp)
     def translate_communities(communities: list[str]) -> dict:
         """Translate raw BGP community strings (e.g. "3356:2065", "1299:2731") into their
         meaning, from a dictionary harvested from operators' own IRR objects, NLNOG, and the
@@ -736,7 +819,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         resp = client.communities_translate(",".join(cleaned[:512]))
 
         out = []
-        for r in resp.get("results", []):
+        for r in (resp.get("results") or []):
             entry = {
                 "community": r.get("community"),
                 "known": r.get("known", False),
@@ -773,7 +856,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         }
 
     # -- compare_windows -----------------------------------------------------
-    @mcp.tool()
+    @api_tool(mcp)
     def compare_windows(
         target: str,
         window_a: dict,
@@ -797,9 +880,9 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
 
         def totals(ts: dict) -> dict:
             if not gb:
-                return {"total": ts.get("meta", {}).get("total", 0)}
+                return {"total": (ts.get("meta") or {}).get("total", 0)}
             agg: dict[str, int] = {}
-            for pt in ts.get("points", []):
+            for pt in (ts.get("points") or []):
                 for k, v in (pt.get("groups") or {}).items():
                     agg[k] = agg.get(k, 0) + v
             return dict(sorted(agg.items(), key=lambda kv: -kv[1]))
@@ -827,108 +910,190 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         return result
 
     # -- locate --------------------------------------------------------------
-    @mcp.tool()
+    @api_tool(mcp)
     def locate(
         asn: Optional[int] = None,
         prefix: Optional[str] = None,
     ) -> dict:
-        """Facility/IX intersection across an entity's upstreams: routing-only
-        geolocation. Finds cities common to all upstreams' PeeringDB presence, which
-        is far more reliable than GeoIP for leased/anycast space. Give a prefix (or an
-        ASN, whose top prefix is used to derive upstreams)."""
+        """Where is this network or prefix physically reached? Routing-only geolocation
+        from three kinds of evidence, strongest first:
+
+        1. Geo-ingress communities: upstream networks tag routes with where they received
+           them (e.g. "LAX1 - Los Angeles"); weighted by observations over 30 days.
+        2. The origin's own PeeringDB facilities.
+        3. Cities common to 2+ upstreams' PeeringDB IX presence (weak on its own).
+
+        `assessment.classification` is `concentrated` (one place carries most of the
+        evidence), `regional`, `distributed` (many places: anycast or a multi-site
+        network, so no single location), or `insufficient_evidence`. Never picks a
+        place without evidence for it. Prefer it over GeoIP for leased or anycast space."""
         if asn is None and not prefix:
             raise ValueError("provide either asn or prefix")
+        warnings: list[dict] = []
+        origin = normalize_asn(asn) if asn is not None else None
 
+        # 1. Geo-ingress (prefix-scoped when a prefix is given).
+        try:
+            geo = client.prefix_geo_ingress(prefix) if prefix else client.asn_geo_ingress(origin)
+        except Exception:  # noqa: BLE001
+            geo = {}
+            warnings.append(warning("geo_ingress_unavailable", "Geo-ingress evidence could not be read."))
+        points = [p for p in (geo.get("points") or []) if p.get("lat") or p.get("lon")]
+        total_obs = sum(p.get("total_obs") or 0 for p in points) or 0
+        ingress = []
+        for p in sorted(points, key=lambda x: -(x.get("total_obs") or 0))[:10]:
+            carriers = sorted({c.get("owner_as") for c in (p.get("communities") or []) if c.get("owner_as")})
+            ingress.append({
+                "city": p.get("city") or None, "country": p.get("country") or None,
+                "observations": p.get("total_obs"),
+                "share": round((p.get("total_obs") or 0) / total_obs, 3) if total_obs else None,
+                "carriers": carriers,
+            })
+
+        # Origin ASN for the PeeringDB and upstream evidence.
+        ov: dict = {}
         target_prefix = prefix
-        if target_prefix is None:
-            pres = client.presence(asn=normalize_asn(asn))
-            plist = pres.get("prefixes", [])
-            if not plist:
-                raise ValueError("ASN announces no prefixes in the window")
-            target_prefix = max(plist, key=lambda p: p.get("days_present", 0)).get("cidr")
-
-        ov = client.prefix_overview(target_prefix)
-        upstreams = _shape.aggregate_upstreams(ov.get("paths", []) or [])
-        upstream_asns = [u["asn"] for u in upstreams[:6]]
-
-        cities_per_upstream: dict[int, set[tuple[str, str]]] = {}
-        facilities_by_city: dict[tuple[str, str], set[str]] = {}
-        for up in upstream_asns:
+        if prefix:
             try:
-                pdb = client.peeringdb_asn(up)
+                ov = client.prefix_overview(prefix)
+                origins = ov.get("origins") or []
+                if origin is None and origins:
+                    origin = origins[0].get("origin_as")
             except Exception:  # noqa: BLE001
-                continue
-            cities: set[tuple[str, str]] = set()
-            for ix in pdb.get("ix_participation") or []:
-                city = (ix.get("ix_city") or "", ix.get("ix_country") or "")
-                if city != ("", ""):
-                    cities.add(city)
-                    facilities_by_city.setdefault(city, set()).add(ix.get("ix_name") or "")
-            cities_per_upstream[up] = cities
+                ov = {}
 
-        common = (
-            set.intersection(*cities_per_upstream.values())
-            if cities_per_upstream
-            else set()
-        )
-        all_common = [
-            {"city": c[0], "country": c[1], "facilities": sorted(f for f in facilities_by_city[c] if f)}
-            for c in sorted(common)
-        ]
-        assessment = None
-        if all_common:
-            best = all_common[0]
-            assessment = {
-                "most_probable": f"{best['city']}, {best['country']}",
-                "confidence": "moderate" if len(upstream_asns) >= 2 else "low",
-                "basis": "common to all observed upstreams' PeeringDB presence",
-            }
+        # 2. The origin's own PeeringDB facilities.
+        own_facilities: list[dict] = []
+        if origin:
+            try:
+                pdb = client.peeringdb_asn(origin)
+                for f in pdb.get("facilities") or []:
+                    if f.get("city"):
+                        own_facilities.append({"facility": f.get("fac_name"), "city": f.get("city"),
+                                               "country": f.get("country")})
+            except Exception:  # noqa: BLE001
+                pass
+
+        # 3. Upstream IX intersection (only meaningful with 2+ upstreams).
+        upstream_asns: list[int] = []
+        common_cities: list[dict] = []
+        if prefix and ov:
+            u_start, u_end = default_window(None, None, days=7)
+            ups, _, _ = session_upstreams(client, prefix, u_start, u_end, origin_as=origin,
+                                          paths=ov.get("paths") or [])
+            upstream_asns = [u["asn"] for u in ups if (u.get("share") or 0) >= 0.01][:6]
+        if len(upstream_asns) >= 2:
+            per_up: list[set] = []
+            for up in upstream_asns:
+                try:
+                    pdb = client.peeringdb_asn(up)
+                except Exception:  # noqa: BLE001
+                    continue
+                per_up.append({(ix.get("ix_city") or "", ix.get("ix_country") or "")
+                               for ix in (pdb.get("ix_participation") or []) if ix.get("ix_city")})
+            if len(per_up) >= 2:
+                common_cities = [{"city": c, "country": k} for c, k in sorted(set.intersection(*per_up))][:10]
+
+        # Assessment from the ranked evidence; never by sort order.
+        own_cities = {(f["city"] or "").lower() for f in own_facilities}
+        top = ingress[0] if ingress else None
+        top_share = (top or {}).get("share") or 0
+        assessment: dict[str, Any]
+        if top and top_share >= 0.5:
+            assessment = {"classification": "concentrated", "most_probable": _place(top),
+                          "confidence": "high" if (top.get("city") or "").lower() in own_cities else "moderate",
+                          "basis": f"{int(top_share * 100)}% of geo-ingress observations"}
+        elif top and len(ingress) >= 5 and top_share < 0.3:
+            assessment = {"classification": "distributed", "most_probable": None, "confidence": "moderate",
+                          "basis": f"routes enter at {len(points)} places with no dominant one "
+                                   "(anycast or a multi-site network); see ingress"}
+        elif top:
+            leaders = [i for i in ingress if (i.get("share") or 0) >= top_share * 0.5][:3]
+            assessment = {"classification": "regional", "most_probable": _place(top),
+                          "alternatives": [_place(i) for i in leaders[1:]],
+                          "confidence": "moderate" if len(leaders) <= 2 else "low",
+                          "basis": "leading geo-ingress locations"}
+        elif own_facilities:
+            assessment = {"classification": "regional", "most_probable": None, "confidence": "low",
+                          "basis": "no geo-ingress evidence; the network lists PeeringDB facilities (see own_facilities)"}
+        else:
+            assessment = {"classification": "insufficient_evidence", "most_probable": None, "confidence": None,
+                          "basis": "no geo-ingress communities or PeeringDB presence for this network"}
+        if len(upstream_asns) == 1:
+            warnings.append(warning("single_upstream", "Only one upstream is visible, so the upstream "
+                                    "intersection carries no location information."))
+        warnings.append(warning(
+            "routing_evidence", "Ingress shows where upstreams receive the routes, which for a customer "
+            "network is usually its interconnection point, not necessarily where its hosts are."))
         return {
-            "target_prefix": target_prefix,
-            "upstreams": upstream_asns,
-            "facility_intersection": {"all_upstreams": all_common},
+            "target": prefix or f"AS{origin}",
+            "origin_as": origin,
             "assessment": assessment,
-            "warnings": [
-                warning(
-                    "geoip_unavailable",
-                    "External GeoIP cross-checks are not wired into the API; this is a "
-                    "routing-evidence estimate. Prefer it over commercial GeoIP for "
-                    "leased or anycast space.",
-                )
-            ],
-            "meta": meta("registry"),
+            "ingress": ingress,
+            "own_facilities": own_facilities[:20],
+            "own_facility_count": len(own_facilities),
+            "upstreams": upstream_asns,
+            "upstream_common_cities": common_cities,
+            "warnings": warnings,
+            "meta": meta("composed"),
         }
 
     # -- subprefixes ---------------------------------------------------------
-    @mcp.tool()
+    @api_tool(mcp)
     def subprefixes(
         prefix: str,
         start: Optional[str] = None,
         end: Optional[str] = None,
+        max_listed: Annotated[int, Field(ge=1, le=1000)] = 200,
     ) -> dict:
         """Announced more-specifics inside a block, plus an estimate of unrouted
-        space: allocated addresses never seen in the table, the easiest kind to
-        announce unnoticed."""
+        space: addresses in the block that no announcement covers, the easiest kind to
+        announce unnoticed. If the block itself or a less-specific is announced, every
+        address is routed and the estimate is 0 (`covered_by` names the route)."""
         start, end = default_window(start, end, days=30)
-        resp = client.prefix_subprefixes(prefix, start_date=start, end_date=end)
+        resp = client.prefix_subprefixes(prefix, start_date=start, end_date=end, limit=1000)
         subs = resp.get("subprefixes", []) or []
-        unrouted = _shape.unrouted_estimate(prefix, subs)
+        total_subs = resp.get("total") or len(subs)
+        covered_by: list[str] = []
+        try:
+            covered_by = _shape.covering_announced(prefix, client.prefix_hierarchy(prefix))
+        except Exception:  # noqa: BLE001
+            pass
+        announced = [s.get("cidr") for s in subs if s.get("cidr")] + covered_by
+        gaps = _shape.unrouted_gaps(prefix, announced)
+        unrouted = sum(prefix_addresses(g) for g in gaps)
         warnings = []
         if any(s.get("is_moas") for s in subs):
             warnings.append(
                 warning("moas_subprefix", "One or more more-specifics have multiple origins (MOAS).")
             )
+        if total_subs > len(subs) and not covered_by:
+            warnings.append(
+                warning(
+                    "subprefixes_truncated",
+                    f"Only {len(subs)} of {total_subs} more-specifics were fetched, so the "
+                    "unrouted estimate may overstate the gap.",
+                )
+            )
+        if len(subs) > max_listed:
+            warnings.append(warning(
+                "subprefixes_listed_partially",
+                f"Listed the {max_listed} most-announced of {len(subs)} fetched more-specifics; "
+                "`count` and the unrouted estimate use all of them. Raise max_listed for more.",
+            ))
         return {
             "prefix": prefix,
-            "subprefixes": subs,
-            "count": len(subs),
+            "subprefixes": subs[:max_listed],
+            "count": total_subs,
+            "covered_by": covered_by,
             "unrouted_addresses_estimate": unrouted,
+            "unrouted_examples": gaps[:10],
             "warnings": warnings,
             "meta": meta("rollup"),
         }
 
     # -- events_sample -------------------------------------------------------
-    @mcp.tool()
+    @api_tool(mcp)
     def events_sample(
         prefix: str,
         start: Annotated[str, Field(description="YYYY-MM-DD or RFC3339 (2026-06-27T06:00:00Z); window <= 24h")],
@@ -1000,7 +1165,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         }
 
     # -- platform_baseline ---------------------------------------------------
-    @mcp.tool()
+    @api_tool(mcp)
     def platform_baseline(
         window: str = "14d",
         by: Literal["type", "severity"] = "type",
@@ -1048,7 +1213,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         }
 
     # -- notable_events ------------------------------------------------------
-    @mcp.tool()
+    @api_tool(mcp)
     def notable_events(
         hours: Annotated[int, Field(ge=1, le=168)] = 24,
         limit: Annotated[int, Field(ge=1, le=100)] = 25,
@@ -1071,6 +1236,8 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
 
         These are LEADS, not verdicts. Relationship inference is imperfect, so an
         event can be flagged when the two parties are the same operator.
+        `announcing_as_allocated: false` means no RIR allocates the announcer: it is a
+        forged or corrupted origin, not a network (null when unknown).
         Investigate before describing anything as a confirmed hijack: `identify`
         the two ASNs, run `origin_episode` for the announcer, and pull the affected
         prefix's history."""
@@ -1097,6 +1264,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
                     "signals": e.get("detection_types") or [],
                     "victim_traffic": e.get("victim_traffic") or None,
                     "possible_leak": bool(e.get("likely_leak")),
+                    "announcing_as_allocated": e.get("actor_allocated"),
                     "severity": e.get("severity"),
                     "score": round(e.get("score") or 0.0, 1),
                     "first_seen": e.get("first_seen"),
@@ -1112,6 +1280,21 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
                 "the tail are often benign or misconfigurations.",
             )
         ]
+        unallocated = sorted(
+            {e["announcing_as"] for e in shaped if e["announcing_as_allocated"] is False}
+        )
+        if unallocated:
+            warnings.append(
+                warning(
+                    "unallocated_announcer",
+                    f"{len(unallocated)} announcing ASN(s) are not allocated by any RIR "
+                    f"({', '.join(f'AS{a}' for a in unallocated[:10])}). These are not "
+                    "networks: the origin was forged or corrupted, it is a routing "
+                    "experiment, or a typo. Name the network that sent the route (the "
+                    "ASN before it in the path, see `paths`) rather than the fake origin. "
+                    "These events are ranked lower.",
+                )
+            )
         return {
             "window_hours": data.get("window_hours", hours),
             "count": len(shaped),
@@ -1121,7 +1304,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         }
 
     # -- origin_episode ------------------------------------------------------
-    @mcp.tool()
+    @api_tool(mcp)
     def origin_episode(
         asn: int,
         start: Annotated[str, Field(description="First episode day, YYYY-MM-DD")],
@@ -1131,6 +1314,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         list_prefixes: bool = True,
         min_peers: Annotated[int, Field(ge=0)] = 0,
         max_prefixes: Annotated[int, Field(ge=1, le=5000)] = 100,
+        min_baseline_days: Annotated[int, Field(ge=1, le=28)] = 3,
     ) -> dict:
         """What did this ASN originate during a short window (up to 7 days) that it does
         not originate normally, and whose space was it? The first call for a suspected
@@ -1162,11 +1346,17 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         provider of the ASN.
 
         Compare `summary.max_peers` with `summary.reference_peers` (the median for the
-        ASN's own steady prefixes) rather than reading peer counts on their own. Presence
-        is judged per day, so a prefix the ASN announced for a moment on a baseline day
-        counts as known. Follow up with `origin_reach` on a few prefixes for the
-        minute-by-minute propagation curve."""
-        params: dict[str, Any] = {"from": start, "baseline_days": baseline_days, "after_days": after_days}
+        ASN's own steady prefixes) rather than reading peer counts on their own. A prefix
+        counts as normal only if the ASN originated it on at least `min_baseline_days`
+        (default 3) comparison days, and only such blocks make "own space"; one announced
+        on fewer days is still listed, with `baseline_days` saying how many, so a repeat
+        announcement of someone else's space is not hidden by its earlier occurrence.
+        `start`/`end` are dates; an RFC3339 time is accepted and its date used. Follow up
+        with `origin_reach` on a few prefixes for the minute-by-minute propagation
+        curve."""
+        start, end = start[:10], (end[:10] if end else end)
+        params: dict[str, Any] = {"from": start, "baseline_days": baseline_days, "after_days": after_days,
+                                  "min_baseline_days": min_baseline_days}
         if end:
             params["to"] = end
         if min_peers:
@@ -1206,7 +1396,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         return out
 
     # -- origin_reach --------------------------------------------------------
-    @mcp.tool()
+    @api_tool(mcp)
     def origin_reach(
         prefix: str,
         origin_as: int,
@@ -1270,7 +1460,7 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         }
 
     # -- bulk_registry -------------------------------------------------------
-    @mcp.tool()
+    @api_tool(mcp)
     def bulk_registry(
         prefixes: Optional[list[str]] = None,
         origin_asn: Optional[int] = None,
@@ -1330,42 +1520,36 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
                         for r in roas
                     ],
                 }
+                err = e.get("error") or ""
+                rpki_down = "rpki" in err.partition("unavailable:")[2]
+                irr_down = "irr" in err.partition("unavailable:")[2]
                 if origin is not None:
-                    if not roas:
+                    if rpki_down:
+                        v = "unavailable"
+                    elif not roas:
                         v = "not_found"
                     elif any(r.get("origin_asn") == origin and (r.get("max_length") is None or plen is None or r["max_length"] >= plen) for r in roas):
                         v = "valid"
                     else:
                         v = "invalid"
                     entry["rpki"] = v
-                    counts[v] += 1
+                    counts[v] = counts.get(v, 0) + 1
                 irr_recs = ((e.get("irr") or {}).get("records")) or []
                 live = (lambda r: True) if as_of else _shape.irr_is_current
                 irr_origins = sorted({r.get("origin_as") for r in irr_recs if r.get("origin_as") and live(r)})
                 gone = sorted({r.get("origin_as") for r in irr_recs if r.get("origin_as") and not live(r)} - set(irr_origins))
-                entry["irr_origins"] = irr_origins
+                entry["irr_origins"] = None if irr_down else irr_origins  # None = could not be read
                 if gone:
                     entry["irr_deleted_origins"] = gone  # objects deleted within the last 30 days
                 if origin is not None:
-                    entry["irr_matches_origin"] = origin in irr_origins if irr_origins else None
-                rd = e.get("rdap") or {}
-                entry["rdap"] = {
-                    "name": rd.get("Name") or rd.get("name"),
-                    "country": rd.get("Country") or rd.get("country") or None,
-                    "rir": _shape.rir_from_rdap(rd),
-                }
+                    entry["irr_matches_origin"] = None if irr_down else (origin in irr_origins if irr_origins else None)
+                entry["rdap"] = _registry_name(e)
                 if e.get("error"):
                     entry["error"] = e["error"]
                 pfx_out.append(entry)
             for a in chunk_a:
                 e = (resp.get("asns") or {}).get(str(a)) or {}
-                rd = e.get("rdap") or {}
-                asn_out.append({
-                    "asn": a,
-                    "name": rd.get("Name") or rd.get("name"),
-                    "country": rd.get("Country") or rd.get("country") or None,
-                    "rir": _shape.rir_from_rdap(rd),
-                })
+                asn_out.append({"asn": a, **_registry_name(e)})
         out: dict[str, Any] = {
             "prefixes": pfx_out,
             "asns": asn_out,
@@ -1405,3 +1589,33 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
                 )
             del out["prefixes"]
         return out
+
+
+def _registry_name(e: dict) -> dict:
+    """Name, country and RIR for a bulk entry: the cached RDAP record, or, when none
+    is cached, the stored name the API falls back to (IRR descr, PeeringDB, delegation
+    data). `name_source` says which, so a label is never mistaken for a registration."""
+    rd = e.get("rdap") or {}
+    if rd:
+        out = {
+            "name": rd.get("Name") or rd.get("name"),
+            "country": rd.get("Country") or rd.get("country") or None,
+            "rir": _shape.rir_from_rdap(rd),
+            "name_source": "rdap",
+        }
+        if e.get("rdap_approximate"):
+            out["approximate"] = True
+        return out
+    fb = e.get("name_fallback") or {}
+    return {
+        "name": fb.get("name"),
+        "country": fb.get("country_code") or None,
+        "rir": fb.get("rir") or None,
+        "name_source": fb.get("source") if fb.get("name") else None,
+    }
+
+
+def _place(p: dict) -> str | None:
+    """"City, Country" for an ingress row, or just whichever is known."""
+    parts = [x for x in (p.get("city"), p.get("country")) if x]
+    return ", ".join(parts) or None

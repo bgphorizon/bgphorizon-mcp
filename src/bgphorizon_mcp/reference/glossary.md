@@ -31,7 +31,15 @@ the audience is known to be routing specialists.
   and when it last changed. A **recent transfer** matters because the old holder's
   ROAs often linger.
 - **MOAS (Multiple Origin AS)**: a prefix originated by more than one ASN at once.
-  Usually benign (anycast, multihoming); a *new* MOAS is hijack-shaped.
+  Usually benign (anycast, multihoming); a *new* MOAS is hijack-shaped. When the new
+  origin belongs to the same organization as the usual one, or is its provider or
+  customer, it is most likely intended.
+- **Unallocated ASN**: a number no regional internet registry has given out. It
+  cannot belong to a real network, so a route originated by one was forged, corrupted
+  or sent as an experiment. The network responsible is the one that sent it on.
+- **Direct session**: a network's own BGP session with a route collector. A route
+  seen only there was announced but not passed on by anyone, so it did not reach the
+  wider internet.
 - **Persistence**: whether a prefix is announced steadily. `persistent`,
   `intermittent`, or `transient`. A prefix present 2 of 60 days is transient. Do
   **not** describe it as a migration or handover.

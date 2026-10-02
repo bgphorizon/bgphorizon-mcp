@@ -72,6 +72,18 @@ def test_upstream_aggregation_shares_sum_to_one():
     assert abs(sum(u["share"] for u in ups) - 1.0) < 1e-9
 
 
+def test_direct_only_paths_are_not_an_upstream():
+    paths = [
+        {"upstream_as": 0, "count": 25},
+        {"upstream_as": 174, "count": 75},
+    ]
+    ups = _shape.aggregate_upstreams(paths)
+    assert ups == [{"asn": 174, "share": 0.75}]
+    assert _shape.direct_share(paths) == 0.25
+    assert _shape.aggregate_upstreams([{"upstream_as": 0, "count": 1}]) == []
+    assert _shape.direct_share([{"upstream_as": 0, "count": 1}]) == 1.0
+
+
 def test_prepend_observation_emitted_once_per_origin():
     paths = [
         {"origin_as": 1600, "prepend_count": 3},
@@ -110,6 +122,20 @@ def test_unrouted_estimate_lower_bounds_gap():
     # /24 parent, one /25 announced -> ~128 unrouted
     un = _shape.unrouted_estimate("10.0.0.0/24", [{"cidr": "10.0.0.0/25"}])
     assert un == 128
+
+
+def test_unrouted_estimate_zero_when_block_itself_announced():
+    # An announced /20 with no more-specifics is routed, not unrouted.
+    assert _shape.unrouted_estimate("104.27.16.0/20", [], covering=["104.27.16.0/20"]) == 0
+    # ...and likewise when a less-specific covers it.
+    assert _shape.unrouted_estimate("104.27.16.0/20", [], covering=["104.16.0.0/12"]) == 0
+
+
+def test_unrouted_gaps_handles_nested_overlap():
+    # A /23 plus both of its /24s must not count the space twice (old sum-of-sizes bug).
+    subs = ["10.0.0.0/23", "10.0.0.0/24", "10.0.1.0/24"]
+    assert _shape.unrouted_gaps("10.0.0.0/22", subs) == ["10.0.2.0/23"]
+    assert _shape.unrouted_estimate("10.0.0.0/22", [{"cidr": c} for c in subs]) == 512
 
 
 def test_concentration_warning_fires_above_half():
@@ -187,3 +213,73 @@ def test_deleted_irr_objects_are_not_current():
     gone = {"origin_as": 37358, "source": "RADB", "timestamp": "2023-07-19T00:00:00Z"}
     objs = _shape.irr_objects({"records": [live, gone]}, set())
     assert [o["current"] for o in objs] == [True, False]
+
+
+def test_prefix_holder_uses_stored_name_when_rdap_not_cached():
+    ident = _shape.asn_holder_identity({"entities": [{"handle": "CLOUD14", "roles": ["registrant"], "name": "Cloudflare, Inc."}]})
+    h = _shape.prefix_holder(None, ident, {"name": "Cloudflare Hong Kong, LLC 101 Townsend Street", "source": "irr"})
+    assert h == {"holder": "Cloudflare Hong Kong, LLC 101 Townsend Street", "holder_is_asn": True,
+                 "basis": "name", "holder_source": "irr"}
+    # A non-matching stored name is "unknown", never "someone else": an IRR descr cannot prove it.
+    h = _shape.prefix_holder(None, ident, {"name": "DBS Vickers", "source": "irr"})
+    assert h["holder_is_asn"] is None and h["holder"] == "DBS Vickers"
+    # Containing registration only: flagged.
+    h = _shape.prefix_holder({"Name": "CLOUDFLARENET", "EntitiesJSON": '[{"handle":"CLOUD14","roles":["registrant"]}]'},
+                             ident, approximate=True)
+    assert h["holder_is_asn"] is True and h["holder_approximate"] is True
+
+
+def _tp(cidr, neighbors, peers, v6=False):
+    ns = [{"asn": a, "share": s} for a, s in neighbors]
+    return {"cidr": cidr, "is_v6": v6, "unique_peers": peers, "neighbors": ns,
+            "significant_neighbor_count": sum(1 for _, s in neighbors if s >= 0.01)}
+
+
+def test_transit_selective_vs_single_homed():
+    pres = {c: {"classification": "persistent", "days_present": 30} for c in ("a/24", "b/24", "c/24")}
+    rels = _shape.relationship_map({"upstreams": [{"asn": 28573, "name": "Claro"}],
+                                    "downstreams": [{"asn": 4775, "name": "Globe"}]})
+    many = [_tp("a/24", [(28573, 1.0)], 289), _tp("b/24", [(4775, 1.0)], 384),
+            _tp("c/24", [(1299, 0.5), (3257, 0.5)], 315)]
+    t = _shape.transit_analysis(many, pres, rels)
+    kinds = {r["prefix"]: (r["kind"], r["relationship"]) for r in t["rows"]}
+    assert kinds == {"a/24": ("selective", "provider"), "b/24": ("selective", "customer")}
+    # A network with one neighbor overall: that is real single-homing.
+    one = [_tp("a/24", [(3356, 1.0)], 100), _tp("c/24", [(3356, 0.995), (174, 0.005)], 100)]
+    t = _shape.transit_analysis(one, pres, {})
+    assert {r["kind"] for r in t["rows"]} == {"single_homed"} and len(t["rows"]) == 2
+
+
+def test_visibility_uses_family_median_and_explains():
+    pres = {f"p{i}": {"classification": "persistent"} for i in range(6)}
+    pres["x"] = {"classification": "persistent"}
+    transit = [_tp(f"p{i}", [(1, 0.5), (2, 0.5)], 300) for i in range(6)]
+    transit += [_tp("x", [(1, 0.5), (2, 0.5)], 90),
+                _tp("v6a", [(1, 1.0)], 20, v6=True)]  # too few v6 prefixes for a median: skipped
+    v = _shape.visibility_analysis(transit, pres, {"x": {"rpki": "invalid"}})
+    assert [r["prefix"] for r in v["rows"]] == ["x"]
+    assert v["rows"][0]["likely_reasons"] == ["rpki_invalid"] and v["medians"]["v6"] is None
+
+
+def test_cidr_index_most_specific_and_strict():
+    idx = _shape.CidrIndex(["104.16.0.0/12", "104.28.0.0/19", "104.28.10.0/24", "2606:4700::/32"])
+    assert idx.containing("104.28.10.0/24") == "104.28.10.0/24"
+    assert idx.containing("104.28.10.0/24", strict=True) == "104.28.0.0/19"
+    assert idx.containing("104.23.174.0/24") == "104.16.0.0/12"
+    assert idx.containing("8.8.8.0/24") is None
+    assert idx.containing("2606:4700:7000::/48") == "2606:4700::/32"
+
+
+def test_transit_prepended_rows_are_uncertain_not_assumed_backups():
+    transit = [
+        {"cidr": "144.166.174.0/24", "significant_neighbor_count": 1, "prepended_share": 0.09,
+         "neighbors": [{"asn": 3356, "share": 1.0}]},
+        {"cidr": "144.166.175.0/24", "significant_neighbor_count": 1,
+         "neighbors": [{"asn": 3356, "share": 1.0}]},
+    ]
+    t = _shape.transit_analysis(transit, {}, {})
+    # Prepends could go through the same provider, so nothing is dropped or relabelled
+    # until collector sessions are checked.
+    assert [r["prefix"] for r in t["rows"]] == ["144.166.174.0/24", "144.166.175.0/24"]
+    assert t["rows"][0]["neighbors_uncertain"] is True and "neighbors_uncertain" not in t["rows"][1]
+    assert all(r["kind"] == "single_homed" for r in t["rows"])
