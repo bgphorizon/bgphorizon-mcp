@@ -487,6 +487,11 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         was claimed), `state` (active | resolved)."""
         if asn is None and not prefix:
             raise ValueError("provide either asn or prefix")
+        # The detections API takes whole days (YYYY-MM-DD) and rejects a timestamp,
+        # which the gateway surfaces as a bare 502. Round a timestamp to its day: the
+        # day window contains the requested one, so nothing in it is dropped.
+        requested = (start, end)
+        start, end = _date_part(start), _date_part(end)
         start, end = default_window(start, end, days=90)
         params: dict[str, Any] = {"from": start, "to": end, "limit": 500}
         if detection_type:
@@ -515,6 +520,14 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
                 inc["direction"] = d
         complete = offset == 0 and next_offset is None
         warnings: list[dict] = []
+        if any(v and len(v) > 10 for v in requested):
+            warnings.append(
+                warning(
+                    "window_rounded_to_days",
+                    f"Detections are listed by whole day, so the window was read as {start} to {end} "
+                    "(inclusive). Filter first_seen/last_seen for a narrower time range.",
+                )
+            )
         if next_offset is not None:
             warnings.append(
                 warning(
@@ -535,6 +548,8 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
             "query": {
                 "asn": norm_asn, "prefix": prefix, "from": start, "to": end,
                 "detection_type": detection_type, "anomalous_only": anomalous_only,
+                "prefix_status": prefix_status, "role": role if asn is not None else None,
+                "state": state,
             },
             "total_matching": total,
             "offset": offset,
@@ -1503,14 +1518,20 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
             chunk_a = asn_list[i:i + 200]
             if not chunk_p and not chunk_a:
                 break
-            body: dict[str, Any] = {"include": ["rpki", "irr", "rdap"]}
-            if as_of:
-                body["as_of"] = as_of
+            # Prefixes and ASNs go in separate requests. Only the ASNs' registration
+            # record is used below, and asking for their RPKI/IRR too ran two 30-day
+            # VRP scans plus an IRR query per ASN, enough to time a 40-ASN call out.
+            resp: dict[str, Any] = {}
             if chunk_p:
-                body["prefixes"] = chunk_p
+                body: dict[str, Any] = {"include": ["rpki", "irr", "rdap"], "prefixes": chunk_p}
+                if as_of:
+                    body["as_of"] = as_of
+                resp["prefixes"] = client.registry_bulk(body).get("prefixes") or {}
             if chunk_a:
-                body["asns"] = chunk_a
-            resp = client.registry_bulk(body)
+                body = {"include": ["rdap"], "asns": chunk_a}
+                if as_of:
+                    body["as_of"] = as_of
+                resp["asns"] = client.registry_bulk(body).get("asns") or {}
             for p in chunk_p:
                 e = (resp.get("prefixes") or {}).get(p) or {}
                 roas = ((e.get("rpki") or {}).get("records")) or []
@@ -1591,6 +1612,14 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
                 )
             del out["prefixes"]
         return out
+
+
+def _date_part(value: Optional[str]) -> Optional[str]:
+    """YYYY-MM-DD from a date or an RFC3339 timestamp (its UTC day as written);
+    None and bare dates pass through unchanged."""
+    if value and len(value) > 10 and value[10] in "Tt ":
+        return value[:10]
+    return value
 
 
 def _registry_name(e: dict) -> dict:

@@ -750,7 +750,7 @@ def detector_gap_days(trend_points: list[dict], start: str, end: str) -> list[st
 
 COMPACT_INCIDENT_COLUMNS = [
     "detection_type", "prefix", "actor_as", "baseline_asns", "direction",
-    "severity", "state", "first_seen", "last_seen", "peer_count",
+    "severity", "state", "first_seen", "last_seen", "peer_count", "prefix_status",
 ]
 
 

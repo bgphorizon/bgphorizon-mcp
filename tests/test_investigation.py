@@ -262,3 +262,60 @@ class EmptyPresenceClient(FakeClient):
 def test_inventory_survives_null_prefix_list():
     out = call(EmptyPresenceClient(), "inventory", {"asn": 64500, "only": None, "start": None})
     assert out["totals"]["listed"] == 0 and out["prefixes"] == []
+
+
+def test_detections_rounds_timestamps_to_days_and_echoes_filters():
+    c = FakeClient(detections=[{**_incident(0), "prefix_status": "new_more_specific"}])
+    out = call(c, "detections", {
+        "asn": 197207, "start": "2026-10-14T16:00:00Z", "end": "2026-10-14T17:00:00Z",
+        "prefix_status": "new_more_specific", "role": "actor", "state": "resolved",
+    })
+    p = c.calls["detections_asn"]
+    assert p["from"] == "2026-10-14" and p["to"] == "2026-10-14"
+    assert p["prefix_status"] == "new_more_specific" and p["role"] == "actor" and p["state"] == "resolved"
+    assert out["query"]["prefix_status"] == "new_more_specific"
+    assert out["query"]["role"] == "actor" and out["query"]["state"] == "resolved"
+    assert any(w["code"] == "window_rounded_to_days" for w in out["warnings"])
+
+
+def test_detections_plain_dates_unchanged_and_no_rounding_warning():
+    c = FakeClient(detections=[_incident(0)])
+    out = call(c, "detections", {"asn": 197207, "start": "2026-09-10", "end": "2026-09-23"})
+    p = c.calls["detections_asn"]
+    assert p["from"] == "2026-09-10" and p["to"] == "2026-09-23"
+    assert "prefix_status" not in p
+    assert out["query"]["prefix_status"] is None
+    assert not any(w["code"] == "window_rounded_to_days" for w in out["warnings"])
+
+
+def test_detections_compact_rows_carry_prefix_status():
+    c = FakeClient(detections=[{**_incident(i), "prefix_status": "new"} for i in range(450)])
+    out = call(c, "detections", {"asn": 197207, "start": "2026-09-10", "end": "2026-09-23"})
+    comp = out["incidents_compact"]
+    assert dict(zip(comp["columns"], comp["rows"][0]))["prefix_status"] == "new"
+
+
+def test_bulk_registry_asks_rdap_only_for_asns():
+    reg = {
+        "prefixes": {"10.0.0.0/24": {"rpki": {"records": []}}},
+        "asns": {"197207": {"rdap": {"name": "TEST-AS", "country": "IR", "rir": "RIPE NCC"}}},
+    }
+    c = FakeClient(registry=reg)
+    out = call(c, "bulk_registry", {"prefixes": ["10.0.0.0/24"], "asns": [197207], "as_of": "2026-09-20"})
+    bodies = c.calls["registry_bulk"]
+    assert len(bodies) == 2
+    pfx_body = next(b for b in bodies if "prefixes" in b)
+    asn_body = next(b for b in bodies if "asns" in b)
+    assert pfx_body["include"] == ["rpki", "irr", "rdap"] and "asns" not in pfx_body
+    assert pfx_body["as_of"] == "2026-09-20"
+    assert asn_body["include"] == ["rdap"] and "prefixes" not in asn_body
+    assert asn_body["as_of"] == "2026-09-20"
+    assert out["asns"][0]["asn"] == 197207
+    assert [p["prefix"] for p in out["prefixes"]] == ["10.0.0.0/24"]
+
+
+def test_bulk_registry_asns_only_makes_one_rdap_request():
+    c = FakeClient(registry={"asns": {"197207": {}}})
+    out = call(c, "bulk_registry", {"asns": [197207]})
+    assert c.calls["registry_bulk"] == [{"include": ["rdap"], "asns": [197207]}]
+    assert out["asns"][0]["asn"] == 197207 and out["prefixes"] == []

@@ -262,7 +262,10 @@ Platform findings, with direction made explicit, paged to completion.
 `format` controls the incident list. `full` lists each incident with `details`.
 `compact` returns `incidents_compact`: a `columns` list (detection_type, prefix,
 actor_as, baseline_asns, direction, severity, state, first_seen, last_seen,
-peer_count) and one row per incident, without details, about a quarter of the size.
+peer_count, prefix_status) and one row per incident, without details, about a quarter
+of the size. `query` echoes every filter applied, including `prefix_status`, `role` and
+`state`. Detections are listed by whole day: an RFC3339 `start`/`end` is read as its
+date, with a `window_rounded_to_days` warning.
 `auto` is full up to 200 incidents and compact above that, with a
 `compact_incidents` warning. Counts and `summary` are the same in every format.
 
