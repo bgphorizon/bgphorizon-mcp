@@ -1232,7 +1232,9 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         Live feed by default (the last `hours`). For a past incident pass `start`/`end`
         (dates or RFC3339, within the last 90 days, at most 31 days wide) and/or `asn`
         (as announcer or usual origin). Scoped to an ASN, incidents with no known usual
-        origin are kept and appear with `usual_origin_as: 0`.
+        origin are kept and appear with `usual_origin_as: 0`. `usual_origin_as` is the
+        prefix's longest-standing current origin; a prefix with several origins has
+        other claimants, so check `origin_history` before naming the owner.
 
         These are LEADS, not verdicts. Relationship inference is imperfect, so an
         event can be flagged when the two parties are the same operator.

@@ -586,7 +586,9 @@ prefixes raise the score; likely leaks (`possible_leak`: the two networks are re
 and shared or leased space lower it. `announcing_as_allocated` is false when no RIR
 allocates the announcer (null when unknown). Such an announcer is a forged or corrupted
 origin, not a network; these events rank lower and add an `unallocated_announcer`
-warning. `usual_origin_as` skips unallocated ASNs in the baseline. Before describing an event as a
+warning. `usual_origin_as` is the longest-standing current origin of the prefix (the first
+allocated entry of the incident's `baseline_asns`); a prefix with several origins has other
+claimants too, so check `origin_history` before naming one network as the owner. Before describing an event as a
 hijack, `identify` both ASNs, run `origin_episode` for the announcer, and pull the
 prefix's history.
 

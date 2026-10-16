@@ -50,6 +50,32 @@ The `detections` tool computes an explicit `direction` field to remove this trap
 announcing inside space it already holds (for example a new, smaller prefix of its
 own block); it is neither the victim nor the offender.
 
+### Order of `baseline_asns` and the usual origin
+
+`baseline_asns` lists the prefix's current holders first: origins in the 30-day
+baseline, then earlier origins that still count as holders, then (for a new
+more-specific) the holders of the covering block. An earlier origin counts as a holder
+only if it originated the prefix over at least 7 days, and, when the prefix has a
+current holder, was seen within 30 days of the event. A network that announced the
+prefix briefly, or a former holder that stopped long ago, is left out. The list can be
+empty when the prefix's only history is short-lived announcements; treat that as "no
+established holder", not as an error. Within each group the longest-standing origin comes
+first. `notable_events` reports the first allocated entry as `usual_origin_as`, so on a
+prefix with several origins it is the longest-standing current one. Treat the rest of
+the list as other networks with a claim, not as a ranking. Incidents opened before
+12 October 2026 may list origins in arbitrary order until the history re-sort runs,
+and incidents opened before 15 October 2026 may still include short-lived earlier
+origins until the history backfill runs.
+
+### Dates in `origin_mismatch_new` details
+
+`prior_first_seen`, `prior_last_seen` and `dormant_days` (kind `returned`) describe the
+announcing network's own earlier run on this prefix: when `actor_as` last originated it
+and how long it was absent. They are not about the other origins. `prior_origins` lists
+every other network ever seen originating the prefix, with no dates, including
+one-day announcements; use `origin_history` for when each one did.
+`holder_origins` is the subset of them that counts toward `baseline_asns`.
+
 ## Severity levels
 
 - **high**: plausibly an active routing incident; the prefix owner would want to
