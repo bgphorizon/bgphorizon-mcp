@@ -1,4 +1,4 @@
-"""Investigation tools (20): analyzing a network you do not run.
+"""Investigation tools (21): analyzing a network you do not run.
 
 Each tool is an analytical operation, not a REST route: it composes one or more
 ``/api/v1`` calls and annotates the result with ``warnings`` so the model cannot
@@ -1614,12 +1614,118 @@ def register_investigation_tools(mcp: FastMCP, client: BGPHorizonClient) -> None
         return out
 
 
+    # -- irr_history ---------------------------------------------------------
+    @api_tool(mcp)
+    def irr_history(
+        asn: Optional[int] = None,
+        prefix: Optional[str] = None,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+        registry: Annotated[Optional[str], Field(description="Only this registry, e.g. RADB, ARIN, RIPE")] = None,
+        object_type: Optional[Literal["route", "aut-num", "as-set"]] = None,
+        change: Optional[Literal["added", "removed", "modified"]] = None,
+        limit: int = 200,
+    ) -> dict:
+        """What changed in the routing registries (IRR) for an ASN or a prefix over a
+        period (default the last 90 days), from daily snapshots of every registry
+        compared one day to the next: route objects added or removed, edits to route
+        and aut-num objects (descr, mnt-by, policy), and AS-SETs adding or removing the
+        ASN. For a prefix: objects for it, its more-specifics and covering blocks.
+
+        Each change names its registry and whether that registry is `authoritative` (an
+        RIR, which checks the resource holder) or `third_party` (RADB and others, where
+        any account can register). For an ASN, `own_maintainer` says whether the
+        change's maintainer also maintains the ASN's aut-num. Changes by other
+        maintainers in third-party registries are where unauthorized registrations
+        show up; they are listed in `attention`. That is a lead, not a finding: a
+        provider registering its customer's routes is routine. `own_maintainer` is
+        unset when the ASN has no aut-num to judge by.
+
+        One maintainer adding or removing 1,000 or more objects at once is a bulk
+        change: one entry with `bulk.count` (this target) and `bulk.total` (all
+        networks). History starts per registry (`history_since`: RADB 2022, the others
+        June 2026). `limit` caps the entries listed (at most 2000); counts cover them all."""
+        if (asn is None) == (not prefix):
+            raise ValueError("provide asn or prefix")
+        start, end = default_window(start, end, days=90)
+        params: dict[str, Any] = {"start_date": start, "end_date": end}
+        if asn is not None:
+            params["asn"] = normalize_asn(asn)
+        else:
+            params["prefix"] = prefix.strip()
+        if registry:
+            params["source"] = registry.strip().upper()
+        if object_type:
+            params["type"] = object_type
+        if change:
+            params["change"] = change
+        limit = max(1, min(int(limit), 2000))
+
+        entries: list[dict] = []
+        first: dict = {}
+        offset = 0
+        while len(entries) < limit:
+            page = client.irr_changes(**params, offset=offset, limit=min(500, limit - len(entries)))
+            if not first:
+                first = page
+            rows = page.get("changes") or []
+            entries.extend(rows)
+            offset += len(rows)
+            if not rows or offset >= (page.get("total") or 0):
+                break
+        total = first.get("total", len(entries))
+
+        by_registry: dict[str, dict[str, int]] = {}
+        for e in entries:
+            n = (e.get("bulk") or {}).get("count") or 1
+            r = by_registry.setdefault(e.get("source") or "?", {"added": 0, "removed": 0, "modified": 0})
+            r[e.get("change") or "modified"] = r.get(e.get("change") or "modified", 0) + n
+
+        attention = [
+            _irr_compact(e) for e in entries
+            if e.get("kind") == "third_party" and e.get("change") == "added"
+            and e.get("object_type") in ("route", "route6")
+            and e.get("own_maintainer") is not True
+        ][:50]
+        bulk = [_irr_compact(e) for e in entries if e.get("bulk")]
+
+        warnings: list[dict] = []
+        if total > len(entries):
+            warnings.append(warning(
+                "truncated",
+                f"{len(entries)} of {total} entries listed; counts, by_registry from the listed ones only. Narrow the window or raise limit.",
+            ))
+        return {
+            "target": first.get("target") or (f"AS{params['asn']}" if "asn" in params else params["prefix"]),
+            "window": {"start": first.get("start_date", start), "end": first.get("end_date", end)},
+            "history_since": first.get("history_since") or {},
+            "total_entries": total,
+            "counts": first.get("counts") or {},
+            "by_registry_listed": by_registry,
+            "maintainers": first.get("maintainers") or [],
+            "own_maintainers": first.get("own_maintainers") or [],
+            "attention": attention,
+            "bulk_changes": bulk,
+            "changes": [_irr_compact(e) for e in entries],
+            "warnings": warnings,
+            "meta": meta("registry", entries_listed=len(entries)),
+        }
+
+
 def _date_part(value: Optional[str]) -> Optional[str]:
     """YYYY-MM-DD from a date or an RFC3339 timestamp (its UTC day as written);
     None and bare dates pass through unchanged."""
     if value and len(value) > 10 and value[10] in "Tt ":
         return value[:10]
     return value
+
+
+def _irr_compact(e: dict) -> dict:
+    """One IRR change without empty fields."""
+    keep = ("date", "prev_date", "source", "kind", "object_type", "change", "object_key", "asn",
+            "set_name", "member", "field", "old_value", "new_value", "mnt_by", "own_maintainer",
+            "descr", "relation", "existed_since", "bulk")
+    return {k: e[k] for k in keep if e.get(k) not in (None, "", [], {}, 0) or (k == "own_maintainer" and e.get(k) is False)}
 
 
 def _registry_name(e: dict) -> dict:

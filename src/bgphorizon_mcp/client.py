@@ -184,6 +184,10 @@ class BGPHorizonClient:
     def irr_asn(self, asn: int | str, **p: Any) -> Any:
         return self.get("/irr/asn", asn=asn, **p)
 
+    def irr_changes(self, **p: Any) -> Any:
+        """IRR change history for asn= or prefix= (/irr/changes)."""
+        return self.get("/irr/changes", **p)
+
     def rdap_prefix(self, prefix: str, live: bool = True) -> Any:
         # live=False answers from cached records and stored names only, without a
         # live registry lookup (those count against the account's daily allowance).

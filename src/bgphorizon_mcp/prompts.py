@@ -80,6 +80,8 @@ RPKI/IRR/holder on every prefix rather than a sample. `notable_events(asn=..., s
 ranked it.
 5. `identify` any counterpart ASNs/prefixes that surface.
 6. `timeline` / `paths` only if volume or transit structure is part of the finding.
+7. If route objects are part of the story (who registered the space, when an object \
+appeared or vanished): `irr_history(asn=... or prefix=...)`.
 
 {_GUARDRAILS}
 
@@ -256,6 +258,10 @@ is a single-point-of-failure worth flagging even when two upstreams are configur
 Scope to a critical prefix with `prefix=...` to check that route specifically.
 3. For any high-severity finding, drill in: `visibility` for filtered prefixes, \
 `validate_announcement` to confirm what a fix would need.
+4. `irr_history(asn=...)` over the last 90 days: changes to the network's registry \
+objects. List each entry in `attention` (route objects for it added by other \
+maintainers in third-party registries) and ask the engineer to confirm it is one they \
+expect, such as a provider registering on their behalf.
 
 Present findings ordered by severity (high → low). For each: what is wrong, which \
 prefixes, the operational consequence, and the exact remediation. No BGP jargon \

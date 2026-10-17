@@ -1,8 +1,8 @@
 # MCP Tool Schemas
 
-Twenty-five tools across three personas:
+Twenty-six tools across three personas:
 
-- **Investigation** (20): analyzing a network you do not run
+- **Investigation** (21): analyzing a network you do not run
 - **Operator** (3): watching one you do
 - **Alerts** (2): reading your own monitoring, for reports
 
@@ -735,6 +735,70 @@ RPKI-invalid when at the time they were not found.
 the per-prefix list is replaced by `notable_prefixes`, the ones with a ROA, an IRR
 object naming `origin_asn`, or an error (at most 200).
 Each 200 items is one API request.
+
+---
+
+## `irr_history`
+
+What changed in the routing registries for an ASN or a prefix over a period.
+
+```jsonc
+{ "name": "irr_history",
+  "inputSchema": { "type": "object", "properties": {
+    "asn":    { "type": "integer" },
+    "prefix": { "type": "string", "description": "CIDR; objects for it, its more-specifics and covering blocks" },
+    "start":  { "type": "string" }, "end": { "type": "string", "description": "default: the last 90 days" },
+    "registry": { "type": "string", "description": "only this registry, e.g. RADB" },
+    "object_type": { "enum": ["route","aut-num","as-set"] },
+    "change": { "enum": ["added","removed","modified"] },
+    "limit":  { "type": "integer", "default": 200, "description": "entries listed, at most 2000" } },
+    "anyOf": [{ "required": ["asn"] }, { "required": ["prefix"] }] } }
+```
+
+```jsonc
+{ "target": "AS23764", "window": { "start": "2026-09-25", "end": "2026-10-05" },
+  "history_since": { "RADB": "2022-01-01", "RIPE": "2026-06-08" },
+  "total_entries": 5, "counts": { "added": 4, "removed": 1, "modified": 0 },
+  "by_registry_listed": { "RADB": { "added": 4, "removed": 1, "modified": 0 } },
+  "maintainers": [{ "mntner": "MAINT-AS36678", "added": 2, "removed": 0, "modified": 0, "own": false }],
+  "own_maintainers": [],
+  "attention": [{ "date": "2026-09-29", "source": "RADB", "kind": "third_party", "object_type": "route",
+                  "change": "added", "object_key": "203.144.100.0/24", "asn": 23764,
+                  "mnt_by": ["MAINT-AS36678"], "own_maintainer": false, "descr": "CTGNET" }],
+  "bulk_changes": [{ "date": "2026-09-30", "source": "RADB", "object_type": "as-set-member", "change": "removed",
+                     "object_key": "AS-HGC-INTL", "member": "AS23764",
+                     "bulk": { "id": "RADB|2026-09-30|as-set-member|removed|set:AS-HGC-INTL",
+                               "count": 1, "total": 1820, "examples": ["AS23764"] } }],
+  "changes": [ /* every entry, newest first, in the same shape */ ] }
+```
+
+Built from daily snapshots of every registry compared one day to the next (the
+platform's `irr_changes` data), so a change is dated to the snapshot where it first
+appears and `prev_date` is the snapshot it was compared with. A registry snapshot that
+failed to download or lacked a whole object type is skipped, not read as a mass removal.
+
+`kind` is `authoritative` for the five RIR registries, which only accept objects from the
+resource holder, and `third_party` for RADB and the others, where any account can
+register. For an ASN, `own_maintainer` says whether the change's maintainer also maintains
+the ASN's aut-num (in an RIR registry when it has one there); `own_maintainers` lists them.
+When the ASN has no aut-num anywhere, `own_maintainers` is empty and `own_maintainer` is
+unset: there is nothing to judge by.
+Maintainer names are not trusted: anyone can create `MAINT-AS13335` in RADB.
+
+`attention` lists route objects added in third-party registries by other maintainers
+(every third-party addition for a prefix, or for an ASN without an aut-num). That is where forged registrations
+show up, but it is a lead, not a finding: providers register routes for their customers
+all the time. Check who announces the prefix (`identify`, `origin_history`) before calling
+one unauthorized.
+
+A bulk change (one maintainer adding or removing 1,000 or more objects in one registry
+in one snapshot, or an AS-SET gaining or losing 1,000 or more members) is one entry:
+`bulk.count` is how many of its objects concern the target, `bulk.total` how many there
+were in all. A removal carries `existed_since` when the object was added within the
+history. History starts per registry (`history_since`); a window starting earlier carries
+`window_before_data`. `truncated` means more entries exist than `limit` listed; `counts`
+and `maintainers` still cover all of them.
+
 ---
 ---
 
